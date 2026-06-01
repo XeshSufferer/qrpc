@@ -107,11 +107,6 @@ func (e *EncoderImpl) ReleaseBuffer(buf []byte) {
 		return
 	}
 
-	// avoid keeping giant buffers in pool
-	if cap(buf) > maxPooledBuffer {
-		return
-	}
-
 	e.buffers.Put(buf[:cap(buf)])
 }
 

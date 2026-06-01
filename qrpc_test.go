@@ -70,7 +70,7 @@ func getTestTLSConfig() *tls.Config {
 	return testTLSConfig
 }
 
-func startTestServer(b *testing.B, handler func(*gen.Request) *gen.Response) (QRpcServer, string) {
+func startTestServer(b *testing.B, handler func(*gen.Request, *gen.Response)) (QRpcServer, string) {
 	b.Helper()
 
 	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
@@ -104,12 +104,10 @@ func startTestServer(b *testing.B, handler func(*gen.Request) *gen.Response) (QR
 func setupRoundTrip(b *testing.B, bodySize int) Client {
 	b.Helper()
 
-	handler := func(req *gen.Request) *gen.Response {
-		return &gen.Response{
-			RequestId: req.RequestId,
-			Code:      200,
-			Body:      req.Body,
-		}
+	handler := func(req *gen.Request, resp *gen.Response) {
+		resp.Body = req.Body
+		resp.Code = 200
+		resp.Headers = req.Headers
 	}
 
 	_, addr := startTestServer(b, handler)
@@ -192,10 +190,45 @@ func BenchmarkRoundTripParallel(b *testing.B) {
 
 func BenchmarkRoundTrip_1KB_WithStartedServer(b *testing.B) {
 	client, _ := NewClient(context.Background(), "localhost:8081", getTestTLSConfig())
-	method := []byte("log")
+	method := []byte("echo")
 	body := make([]byte, 1024)
 	time.Sleep(time.Millisecond * 500)
 	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		resp, err := client.SendRequest(context.Background(), method, body, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if resp.Code != 200 {
+			b.Fatal("unexpected status code")
+		}
+	}
+}
+
+func BenchmarkRoundTrip_4KB_WithStartedServer(b *testing.B) {
+	client, _ := NewClient(context.Background(), "localhost:8081", getTestTLSConfig())
+	method := []byte("echo")
+	body := make([]byte, 1024*4)
+	time.Sleep(time.Millisecond * 500)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		resp, err := client.SendRequest(context.Background(), method, body, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if resp.Code != 200 {
+			b.Fatal("unexpected status code")
+		}
+	}
+}
+
+func BenchmarkRoundTrip_16KB_WithStartedServer(b *testing.B) {
+	client, _ := NewClient(context.Background(), "localhost:8081", getTestTLSConfig())
+	method := []byte("echo")
+	body := make([]byte, 1024*16)
+	time.Sleep(time.Millisecond * 500)
+	b.ResetTimer()
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		resp, err := client.SendRequest(context.Background(), method, body, nil)
 		if err != nil {

@@ -23,7 +23,7 @@ type ClientImpl struct {
 	Conn        *quic.Conn
 	multiplexor client.Multiplexer
 	encoder     internal.Encoder
-	chansMap    *sync.Map
+	chansMap    *internal.ShardedMap
 	chansPool   *sync.Pool
 }
 
@@ -44,7 +44,7 @@ func NewClient(ctx context.Context, addr string, tls *tls.Config) (Client, error
 }
 
 func newClient(conn *quic.Conn) Client {
-	chans := sync.Map{}
+	chans := internal.NewShardedMap()
 	chansPool := &sync.Pool{
 		New: func() any {
 			return make(chan *gen.Response, 1)
@@ -52,16 +52,16 @@ func newClient(conn *quic.Conn) Client {
 	}
 	qrpc := ClientImpl{
 		Conn:      conn,
-		chansMap:  &chans,
+		chansMap:  chans,
 		chansPool: chansPool,
 	}
 
-	qrpc.multiplexor = client.NewMultiplexer(conn, qrpc_quic.NewBalancer(), 4, &chans)
+	qrpc.multiplexor = client.NewMultiplexer(conn, qrpc_quic.NewBalancer(), 32, chans)
 	qrpc.encoder = internal.NewEncoder()
 	return &qrpc
 }
 
-var TimeoutDuration = time.Second * 16
+var TimeoutDuration = time.Second * 8
 
 func (clientimpl *ClientImpl) sendRequestInternal(req *gen.Request) (chan *gen.Response, error) {
 	if req.RequestId == 0 {
@@ -112,14 +112,11 @@ func (clientimpl *ClientImpl) waitResponse(
 }
 
 func (clientimpl *ClientImpl) SendRequest(
-	c context.Context,
+	ctx context.Context,
 	method,
 	body,
 	headers []byte,
 ) (*gen.Response, error) {
-
-	ctx, cancel := context.WithTimeout(c, TimeoutDuration)
-	defer cancel()
 
 	r := client.GetRequest()
 

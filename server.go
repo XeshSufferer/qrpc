@@ -19,13 +19,13 @@ import (
 
 type QRpcServer interface {
 	startListen()
-	AddHandler(method string, handler func(*gen.Request) *gen.Response)
+	AddHandler(method string, handler func(*gen.Request, *gen.Response))
 }
 
 type QRPCServerImpl struct {
 	listener *quic.Listener
 	conns    map[uint32]*quic.Conn
-	handlers map[string]func(*gen.Request) *gen.Response
+	handlers map[string]func(*gen.Request, *gen.Response)
 	encoder  internal.Encoder
 }
 
@@ -51,12 +51,12 @@ func newServer(listener *quic.Listener) QRpcServer {
 	return &QRPCServerImpl{
 		listener: listener,
 		conns:    make(map[uint32]*quic.Conn, 4),
-		handlers: make(map[string]func(*gen.Request) *gen.Response, 4),
+		handlers: make(map[string]func(*gen.Request, *gen.Response), 4),
 		encoder:  internal.NewEncoder(),
 	}
 }
 
-func (s *QRPCServerImpl) AddHandler(method string, handler func(*gen.Request) *gen.Response) {
+func (s *QRPCServerImpl) AddHandler(method string, handler func(*gen.Request, *gen.Response)) {
 	s.handlers[method] = handler
 }
 
@@ -97,14 +97,14 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 	headerLengthBuff := make([]byte, 4)
 	flagBuff := make([]byte, 1)
 
-	for {
+	var reqBuff []byte
 
+	for {
 		if stream == nil {
 			log.Println("Stream dead. It's ok")
 			return
 		}
 
-		// read frame length
 		_, err := io.ReadFull(stream, headerLengthBuff)
 		if err != nil {
 			if IsTimeoutErr(err) {
@@ -122,19 +122,20 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 			return
 		}
 
-		// read flag
 		_, err = io.ReadFull(stream, flagBuff)
 		if err != nil {
 			slog.Error("error by read flag in read cycle", "err", err)
 			return
 		}
 
-		// payload length excludes flag byte
 		payloadLen := int(length) - 1
 
-		reqBuff := make([]byte, payloadLen)
+		if cap(reqBuff) < payloadLen {
+			reqBuff = make([]byte, payloadLen)
+		}
 
-		// read protobuf payload
+		reqBuff = reqBuff[:payloadLen]
+
 		_, err = io.ReadFull(stream, reqBuff)
 		if err != nil {
 			slog.Error("error by read request payload in read cycle", "err", err)
@@ -142,14 +143,15 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 		}
 
 		switch flagBuff[0] {
-
 		case types.REQUEST_FLAG:
 			req := client.GetRequest()
+			resp := client.GetResponse()
 
 			err := req.UnmarshalVT(reqBuff)
 			if err != nil {
 				slog.Error("error by unmarshal request buffer", "err", err)
 				client.ReleaseRequest(req)
+				client.ReleaseResponse(resp)
 				continue
 			}
 
@@ -158,14 +160,18 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 			if !exists {
 				slog.Error("handler not found", "method", string(req.Method))
 				client.ReleaseRequest(req)
+				client.ReleaseResponse(resp)
 				return
 			}
 
-			resp := handler(req)
+			resp.RequestId = req.RequestId
+
+			handler(req, resp)
 
 			client.ReleaseRequest(req)
 
 			buf, err := s.encoder.EncodeResponse(resp)
+			client.ReleaseResponse(resp)
 
 			if err != nil {
 				slog.Error("error by encoding response", "err", err)
@@ -184,6 +190,7 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 		}
 	}
 }
+
 func IsTimeoutErr(err error) bool {
 	var idleTimeoutErr *quic.IdleTimeoutError
 

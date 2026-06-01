@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/XeshSufferer/qrpc/internal"
 	"github.com/XeshSufferer/qrpc/protos/pb/gen"
 	qrpc_quic "github.com/XeshSufferer/qrpc/transport/quic"
 	"github.com/XeshSufferer/qrpc/transport/types"
@@ -21,10 +22,10 @@ type Multiplexer interface {
 type MultiplexerImpl struct {
 	balancer qrpc_quic.Balancer
 	conn     *quic.Conn
-	chansMap *sync.Map
+	chansMap *internal.ShardedMap
 }
 
-const StreamOpenDelay = 50 // ms
+const StreamOpenDelay = 10 // ms
 
 var requests = &sync.Pool{
 	New: func() any {
@@ -42,7 +43,7 @@ func NewMultiplexer(
 	conn *quic.Conn,
 	quicbalancer qrpc_quic.Balancer,
 	streamsCount uint16,
-	chansMap *sync.Map,
+	chansMap *internal.ShardedMap,
 ) Multiplexer {
 	m := &MultiplexerImpl{
 		balancer: quicbalancer,
@@ -88,11 +89,11 @@ func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 	headerLengthBuff := make([]byte, 4)
 	flagBuff := make([]byte, 1)
 
+	var reqBuff []byte
+
 	for {
-		// read frame length
 		_, err := io.ReadFull(s, headerLengthBuff)
 		if err != nil {
-
 			if IsTimeoutErr(err) {
 				slog.Debug("peer disconnected")
 				return
@@ -108,10 +109,8 @@ func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 			return
 		}
 
-		// read flag
 		_, err = io.ReadFull(s, flagBuff)
 		if err != nil {
-
 			if IsTimeoutErr(err) {
 				slog.Debug("peer disconnected")
 				return
@@ -121,12 +120,14 @@ func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 			return
 		}
 
-		// payload size excludes flag byte
 		payloadLen := int(length) - 1
 
-		reqBuff := make([]byte, payloadLen)
+		if cap(reqBuff) < payloadLen {
+			reqBuff = make([]byte, payloadLen)
+		}
 
-		// read protobuf payload
+		reqBuff = reqBuff[:payloadLen]
+
 		_, err = io.ReadFull(s, reqBuff)
 		if err != nil {
 			if IsTimeoutErr(err) {
@@ -139,22 +140,19 @@ func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 		}
 
 		switch flagBuff[0] {
-
 		case types.RESPONSE_FLAG:
 			resp := GetResponse()
 
 			err := resp.UnmarshalVT(reqBuff)
-
 			if err != nil {
 				slog.Error("error by unmarshal response buffer", "err", err)
 				ReleaseResponse(resp)
 				continue
 			}
 
-			if v, ok := m.chansMap.Load(resp.RequestId); ok {
+			if v, ok := m.chansMap.LoadAndDelete(resp.RequestId); ok {
 				ch := v.(chan *gen.Response)
 				ch <- resp
-				m.chansMap.Delete(resp.RequestId)
 			} else {
 				ReleaseResponse(resp)
 			}
@@ -163,17 +161,15 @@ func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 			req := GetRequest()
 
 			err := req.UnmarshalVT(reqBuff)
-
 			if err != nil {
 				slog.Error("error by unmarshal request buffer", "err", err)
 				ReleaseRequest(req)
 				continue
 			}
 
-			if v, ok := m.chansMap.Load(req.RequestId); ok {
+			if v, ok := m.chansMap.LoadAndDelete(req.RequestId); ok {
 				ch := v.(chan *gen.Request)
 				ch <- req
-				m.chansMap.Delete(req.RequestId)
 			} else {
 				ReleaseRequest(req)
 			}
