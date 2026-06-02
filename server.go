@@ -34,7 +34,16 @@ func NewServer(addr string, tls *tls.Config) (QRpcServer, error) {
 	config := &quic.Config{
 		KeepAlivePeriod: 15 * time.Second,
 		MaxIdleTimeout:  0,
+
+		InitialStreamReceiveWindow: 8 << 20,  // 8 MB
+		MaxStreamReceiveWindow:     32 << 20, // 32 MB
+
+		InitialConnectionReceiveWindow: 16 << 20, // 16 MB
+		MaxConnectionReceiveWindow:     64 << 20, // 64 MB
+
+		MaxIncomingStreams: 10000,
 	}
+
 	listener, err := quic.ListenAddr(addr, tls, config)
 
 	if err != nil {

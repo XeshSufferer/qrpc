@@ -112,7 +112,7 @@ func setupRoundTrip(b *testing.B, bodySize int) Client {
 
 	_, addr := startTestServer(b, handler)
 
-	client, err := NewClient(context.Background(), addr, getTestTLSConfig())
+	client, err := NewClient(context.Background(), addr, getTestTLSConfig(), 1)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func BenchmarkRoundTripParallel(b *testing.B) {
 }
 
 func BenchmarkRoundTrip_1KB_WithStartedServer(b *testing.B) {
-	client, _ := NewClient(context.Background(), "localhost:8081", getTestTLSConfig())
+	client, _ := NewClient(context.Background(), "localhost:8081", getTestTLSConfig(), 1)
 	method := []byte("echo")
 	body := make([]byte, 1024)
 	time.Sleep(time.Millisecond * 500)
@@ -206,7 +206,7 @@ func BenchmarkRoundTrip_1KB_WithStartedServer(b *testing.B) {
 }
 
 func BenchmarkRoundTrip_4KB_WithStartedServer(b *testing.B) {
-	client, _ := NewClient(context.Background(), "localhost:8081", getTestTLSConfig())
+	client, _ := NewClient(context.Background(), "localhost:8081", getTestTLSConfig(), 1)
 	method := []byte("echo")
 	body := make([]byte, 1024*4)
 	time.Sleep(time.Millisecond * 500)
@@ -223,7 +223,7 @@ func BenchmarkRoundTrip_4KB_WithStartedServer(b *testing.B) {
 }
 
 func BenchmarkRoundTrip_16KB_WithStartedServer(b *testing.B) {
-	client, _ := NewClient(context.Background(), "localhost:8081", getTestTLSConfig())
+	client, _ := NewClient(context.Background(), "localhost:8081", getTestTLSConfig(), 1)
 	method := []byte("echo")
 	body := make([]byte, 1024*16)
 	time.Sleep(time.Millisecond * 500)

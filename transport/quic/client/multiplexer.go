@@ -152,7 +152,11 @@ func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 
 			if v, ok := m.chansMap.LoadAndDelete(resp.RequestId); ok {
 				ch := v.(chan *gen.Response)
-				ch <- resp
+				select {
+				case ch <- resp:
+				default:
+					ReleaseResponse(resp)
+				}
 			} else {
 				ReleaseResponse(resp)
 			}
@@ -169,7 +173,11 @@ func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 
 			if v, ok := m.chansMap.LoadAndDelete(req.RequestId); ok {
 				ch := v.(chan *gen.Request)
-				ch <- req
+				select {
+				case ch <- req:
+				default:
+					ReleaseRequest(req)
+				}
 			} else {
 				ReleaseRequest(req)
 			}

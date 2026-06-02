@@ -48,6 +48,7 @@ const (
 type LoadConfig struct {
 	Workers     int          `json:"workers"`
 	Streams     int          `json:"streams"`
+	Connections int          `json:"connections"`
 	Workload    WorkloadType `json:"workload"`
 	PayloadSize int          `json:"payload_size"`
 	MinPayload  int          `json:"min_payload"`
@@ -55,7 +56,7 @@ type LoadConfig struct {
 	Duration    Duration     `json:"duration"`
 	Warmup      Duration     `json:"warmup"`
 	Method      string       `json:"method"`
-	System     RPCSystem    `json:"system,omitempty"`
+	System      RPCSystem    `json:"system,omitempty"`
 }
 
 type NetworkProfile struct {
@@ -121,6 +122,7 @@ var DefaultScenarios = map[string]struct {
 		LoadConfig: LoadConfig{
 			Workers:     1,
 			Streams:     1,
+			Connections: 1,
 			Workload:    WorkloadFixed,
 			PayloadSize: 1024,
 			Duration:    Duration(10 * time.Second),
@@ -134,6 +136,7 @@ var DefaultScenarios = map[string]struct {
 		LoadConfig: LoadConfig{
 			Workers:     100,
 			Streams:     32,
+			Connections: 1,
 			Workload:    WorkloadRandom,
 			MinPayload:  1024,
 			MaxPayload:  32 * 1024,
@@ -148,6 +151,7 @@ var DefaultScenarios = map[string]struct {
 		LoadConfig: LoadConfig{
 			Workers:     50,
 			Streams:     64,
+			Connections: 1,
 			Workload:    WorkloadMixed,
 			MinPayload:  1024,
 			MaxPayload:  1024,
@@ -162,6 +166,7 @@ var DefaultScenarios = map[string]struct {
 		LoadConfig: LoadConfig{
 			Workers:     100,
 			Streams:     32,
+			Connections: 1,
 			Workload:    WorkloadRandom,
 			MinPayload:  1024,
 			MaxPayload:  16 * 1024,
@@ -176,6 +181,7 @@ var DefaultScenarios = map[string]struct {
 		LoadConfig: LoadConfig{
 			Workers:     50,
 			Streams:     16,
+			Connections: 1,
 			Workload:    WorkloadFixed,
 			PayloadSize: 1024,
 			Duration:    Duration(15 * time.Second),

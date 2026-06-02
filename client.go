@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/XeshSufferer/qrpc/internal"
@@ -20,48 +21,76 @@ type Client interface {
 }
 
 type ClientImpl struct {
-	Conn        *quic.Conn
-	multiplexor client.Multiplexer
-	encoder     internal.Encoder
-	chansMap    *internal.ShardedMap
-	chansPool   *sync.Pool
+	conns        []*quic.Conn
+	multiplexors []client.Multiplexer
+	connCounter  atomic.Uint32
+	encoder      internal.Encoder
+	chansMap     *internal.ShardedMap
+	chansPool    *sync.Pool
 }
 
-func NewClient(ctx context.Context, addr string, tls *tls.Config) (Client, error) {
+func NewClient(ctx context.Context, addr string, tls *tls.Config, connsCount int) (Client, error) {
 
 	config := &quic.Config{
 		KeepAlivePeriod: 15 * time.Second,
 		MaxIdleTimeout:  0,
+
+		InitialStreamReceiveWindow: 8 << 20,  // 8 MB
+		MaxStreamReceiveWindow:     32 << 20, // 32 MB
+
+		InitialConnectionReceiveWindow: 16 << 20, // 16 MB
+		MaxConnectionReceiveWindow:     64 << 20, // 64 MB
+
+		MaxIncomingStreams: 10000,
 	}
 
-	conn, err := quic.DialAddr(ctx, addr, tls, config)
-
-	if err != nil {
-		return nil, err
+	if connsCount < 1 {
+		connsCount = 1
 	}
 
-	return newClient(conn), nil
+	conns := make([]*quic.Conn, 0, connsCount)
+	for i := 0; i < connsCount; i++ {
+		conn, err := quic.DialAddr(ctx, addr, tls, config)
+		if err != nil {
+			for _, c := range conns {
+				c.CloseWithError(0, "")
+			}
+			return nil, err
+		}
+		conns = append(conns, conn)
+	}
+
+	return newClient(conns), nil
 }
 
-func newClient(conn *quic.Conn) Client {
+func newClient(conns []*quic.Conn) Client {
 	chans := internal.NewShardedMap()
 	chansPool := &sync.Pool{
 		New: func() any {
 			return make(chan *gen.Response, 1)
 		},
 	}
-	qrpc := ClientImpl{
-		Conn:      conn,
-		chansMap:  chans,
-		chansPool: chansPool,
+
+	multiplexors := make([]client.Multiplexer, len(conns))
+	for i, conn := range conns {
+		multiplexors[i] = client.NewMultiplexer(conn, qrpc_quic.NewBalancer(), 32, chans)
 	}
 
-	qrpc.multiplexor = client.NewMultiplexer(conn, qrpc_quic.NewBalancer(), 32, chans)
-	qrpc.encoder = internal.NewEncoder()
-	return &qrpc
+	return &ClientImpl{
+		conns:        conns,
+		multiplexors: multiplexors,
+		chansMap:     chans,
+		chansPool:    chansPool,
+		encoder:      internal.NewEncoder(),
+	}
 }
 
 var TimeoutDuration = time.Second * 8
+
+func (clientimpl *ClientImpl) getMultiplexor() client.Multiplexer {
+	idx := clientimpl.connCounter.Add(1) - 1
+	return clientimpl.multiplexors[idx%uint32(len(clientimpl.multiplexors))]
+}
 
 func (clientimpl *ClientImpl) sendRequestInternal(req *gen.Request) (chan *gen.Response, error) {
 	if req.RequestId == 0 {
@@ -78,12 +107,18 @@ func (clientimpl *ClientImpl) sendRequestInternal(req *gen.Request) (chan *gen.R
 		return nil, err
 	}
 
-	stream, err := clientimpl.multiplexor.GetStream()
+	mux := clientimpl.getMultiplexor()
+	stream, err := mux.GetStream()
 	if err != nil {
 		return nil, err
 	}
 
+	if err := stream.SetWriteDeadline(time.Now().Add(TimeoutDuration)); err != nil {
+		return nil, err
+	}
+
 	_, err = stream.Write(buf)
+
 	if err != nil {
 		return nil, err
 	}

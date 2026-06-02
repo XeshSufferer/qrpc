@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/XeshSufferer/qrpc/stress_tester/internal/config"
 	"github.com/XeshSufferer/qrpc/stress_tester/internal/loader"
@@ -83,8 +84,8 @@ func listScenarios() {
 	for name, s := range config.DefaultScenarios {
 		fmt.Printf("\n  %s:\n", name)
 		fmt.Printf("    %s\n", s.Description)
-		fmt.Printf("    Workers: %d, Streams: %d, Workload: %s, Duration: %s\n",
-			s.LoadConfig.Workers, s.LoadConfig.Streams,
+		fmt.Printf("    Workers: %d, Streams: %d, Connections: %d, Workload: %s, Duration: %s\n",
+			s.LoadConfig.Workers, s.LoadConfig.Streams, s.LoadConfig.Connections,
 			s.LoadConfig.Workload, s.LoadConfig.Duration.Duration())
 		fmt.Printf("    Profiles: %s\n", strings.Join(s.Profiles, ", "))
 	}
@@ -142,6 +143,7 @@ func runBenchmark(args []string) {
 
 	workers := fs.Int("workers", 0, "Override worker count (0 = use scenario default)")
 	streams := fs.Int("streams", 0, "Override stream count (0 = use scenario default)")
+	connections := fs.Int("connections", 0, "Override QUIC connection count (0 = use scenario default)")
 	duration := fs.Duration("duration", 0, "Override test duration (0 = use scenario default)")
 	warmup := fs.Duration("warmup", 0, "Override warmup duration (0 = use scenario default)")
 	payloadSize := fs.Int("payload-size", 0, "Override fixed payload size in bytes (0 = use scenario default)")
@@ -177,6 +179,9 @@ func runBenchmark(args []string) {
 	if *streams > 0 {
 		lc.Streams = *streams
 	}
+	if *connections > 0 {
+		lc.Connections = *connections
+	}
 	if *duration > 0 {
 		lc.Duration = config.Duration(*duration)
 	}
@@ -194,9 +199,16 @@ func runBenchmark(args []string) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		<-sigCh
-		log.Println("interrupted, cleaning up...")
+		sig := <-sigCh
+		log.Printf("received %v, shutting down gracefully (press again to force)...", sig)
 		cancel()
+
+		select {
+		case <-sigCh:
+			log.Println("forced exit")
+			os.Exit(1)
+		case <-time.After(3 * time.Second):
+		}
 	}()
 
 	r := scenarios.NewRunner(*iface, *output, *raw, config.RPCSystem(*system), *addr)

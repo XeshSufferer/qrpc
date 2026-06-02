@@ -62,7 +62,7 @@ import (
 
 func main() {
   tlsConfig := /* *tls.Config */
-  client, err := qrpc.NewClient(context.Background(), "127.0.0.1:8081", tlsConfig)
+  client, err := qrpc.NewClient(context.Background(), "127.0.0.1:8081", tlsConfig, 1)
   if err != nil {
     log.Fatal(err)
   }

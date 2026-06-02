@@ -42,6 +42,7 @@ type LoadGenerator struct {
 	addr       string
 	collector  *metrics.Collector
 	wg         sync.WaitGroup
+	ctx        context.Context
 	cancel     context.CancelFunc
 	collecting atomic.Bool
 }
@@ -56,6 +57,7 @@ func New(cfg config.LoadConfig, addr string, collector *metrics.Collector) *Load
 
 func (lg *LoadGenerator) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
+	lg.ctx = ctx
 	lg.cancel = cancel
 
 	var client RPCClient
@@ -71,7 +73,7 @@ func (lg *LoadGenerator) Start(ctx context.Context) error {
 			return fmt.Errorf("tls config: %w", err)
 		}
 		var qc qrpc.Client
-		qc, err = qrpc.NewClient(ctx, lg.addr, tlsCfg)
+		qc, err = qrpc.NewClient(ctx, lg.addr, tlsCfg, lg.cfg.Connections)
 		if err == nil {
 			client = &qrpcClientWrapper{qc}
 		}
@@ -92,17 +94,35 @@ func (lg *LoadGenerator) Start(ctx context.Context) error {
 
 func (lg *LoadGenerator) Warmup(duration time.Duration) {
 	log.Printf("[loader] warmup %s ...", duration)
-	time.Sleep(duration)
+	select {
+	case <-lg.ctx.Done():
+	case <-time.After(duration):
+	}
 	lg.collecting.Store(true)
 	log.Printf("[loader] collecting started")
 }
 
 func (lg *LoadGenerator) Run(duration time.Duration) {
 	log.Printf("[loader] running for %s ...", duration)
-	time.Sleep(duration)
+	select {
+	case <-lg.ctx.Done():
+	case <-time.After(duration):
+	}
 	lg.collecting.Store(false)
 	lg.cancel()
-	lg.wg.Wait()
+
+	done := make(chan struct{})
+	go func() {
+		lg.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-lg.ctx.Done():
+		log.Printf("[loader] interrupted while waiting for workers")
+	}
+
 	lg.collector.StopTimer()
 	log.Printf("[loader] done")
 }
