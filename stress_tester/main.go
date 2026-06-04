@@ -84,8 +84,8 @@ func listScenarios() {
 	for name, s := range config.DefaultScenarios {
 		fmt.Printf("\n  %s:\n", name)
 		fmt.Printf("    %s\n", s.Description)
-		fmt.Printf("    Workers: %d, Streams: %d, Connections: %d, Workload: %s, Duration: %s\n",
-			s.LoadConfig.Workers, s.LoadConfig.Streams, s.LoadConfig.Connections,
+		fmt.Printf("    Workers: %d, Pipelining: %d, Streams: %d, Connections: %d, Workload: %s, Duration: %s\n",
+			s.LoadConfig.Workers, s.LoadConfig.Pipelining, s.LoadConfig.Streams, s.LoadConfig.Connections,
 			s.LoadConfig.Workload, s.LoadConfig.Duration.Duration())
 		fmt.Printf("    Profiles: %s\n", strings.Join(s.Profiles, ", "))
 	}
@@ -142,11 +142,14 @@ func runBenchmark(args []string) {
 	raw := fs.Bool("raw", false, "Save raw latency samples")
 
 	workers := fs.Int("workers", 0, "Override worker count (0 = use scenario default)")
+	pipelining := fs.Int("pipelining", 0, "Override pipelining per worker (0 = use scenario default)")
 	streams := fs.Int("streams", 0, "Override stream count (0 = use scenario default)")
 	connections := fs.Int("connections", 0, "Override QUIC connection count (0 = use scenario default)")
 	duration := fs.Duration("duration", 0, "Override test duration (0 = use scenario default)")
 	warmup := fs.Duration("warmup", 0, "Override warmup duration (0 = use scenario default)")
 	payloadSize := fs.Int("payload-size", 0, "Override fixed payload size in bytes (0 = use scenario default)")
+	retryAttempts := fs.Int("retry-attempts", 3, "Number of connection retry attempts on init failure")
+	retryDelay := fs.Duration("retry-delay", 500*time.Millisecond, "Delay between connection retry attempts")
 
 	fs.Parse(args)
 
@@ -176,6 +179,9 @@ func runBenchmark(args []string) {
 	if *workers > 0 {
 		lc.Workers = *workers
 	}
+	if *pipelining > 0 {
+		lc.Pipelining = *pipelining
+	}
 	if *streams > 0 {
 		lc.Streams = *streams
 	}
@@ -191,6 +197,12 @@ func runBenchmark(args []string) {
 	if *payloadSize > 0 {
 		lc.PayloadSize = *payloadSize
 		lc.Workload = config.WorkloadFixed
+	}
+	if *retryAttempts > 0 {
+		lc.RetryAttempts = *retryAttempts
+	}
+	if *retryDelay > 0 {
+		lc.RetryDelay = config.Duration(*retryDelay)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

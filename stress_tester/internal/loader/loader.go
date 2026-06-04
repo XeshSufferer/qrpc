@@ -3,7 +3,7 @@ package loader
 import (
 	"context"
 	"crypto/rand"
-	"crypto/tls"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -19,6 +19,8 @@ import (
 	itls "github.com/XeshSufferer/qrpc/stress_tester/internal/tls"
 	"github.com/XeshSufferer/qrpc/protos/pb/gen"
 )
+
+var errClientInitFailed = errors.New("client initialization failed after retries")
 
 type RPCClient interface {
 	SendRequest(ctx context.Context, method []byte, body []byte, headers []byte) (*gen.Response, error)
@@ -60,24 +62,7 @@ func (lg *LoadGenerator) Start(ctx context.Context) error {
 	lg.ctx = ctx
 	lg.cancel = cancel
 
-	var client RPCClient
-	var err error
-
-	switch lg.cfg.System {
-	case config.SystemGRPC:
-		client, err = grpc.NewClient(lg.addr)
-	default:
-		var tlsCfg *tls.Config
-		tlsCfg, err = itls.GetQuicTLSConfig()
-		if err != nil {
-			return fmt.Errorf("tls config: %w", err)
-		}
-		var qc qrpc.Client
-		qc, err = qrpc.NewClient(ctx, lg.addr, tlsCfg, lg.cfg.Connections)
-		if err == nil {
-			client = &qrpcClientWrapper{qc}
-		}
-	}
+	client, err := lg.initClient(ctx)
 	if err != nil {
 		return fmt.Errorf("new client: %w", err)
 	}
@@ -90,6 +75,60 @@ func (lg *LoadGenerator) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (lg *LoadGenerator) initClient(ctx context.Context) (RPCClient, error) {
+	var lastErr error
+
+	attempts := lg.cfg.RetryAttempts
+	if attempts < 1 {
+		attempts = 1
+	}
+
+	delay := lg.cfg.RetryDelay.Duration()
+	if delay <= 0 {
+		delay = 500 * time.Millisecond
+	}
+
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			log.Printf("[loader] retrying client init (attempt %d/%d) after %v ...",
+				attempt+1, attempts, delay)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		client, err := lg.tryInitClient(ctx)
+		if err == nil {
+			return client, nil
+		}
+
+		lastErr = err
+		log.Printf("[loader] client init attempt %d/%d failed: %v",
+			attempt+1, attempts, err)
+	}
+
+	return nil, fmt.Errorf("%w: %v", errClientInitFailed, lastErr)
+}
+
+func (lg *LoadGenerator) tryInitClient(ctx context.Context) (RPCClient, error) {
+	switch lg.cfg.System {
+	case config.SystemGRPC:
+		return grpc.NewClient(lg.addr)
+	default:
+		tlsCfg, err := itls.GetQuicTLSConfig()
+		if err != nil {
+			return nil, fmt.Errorf("tls config: %w", err)
+		}
+		qc, err := qrpc.NewClient(ctx, lg.addr, tlsCfg, lg.cfg.Connections)
+		if err != nil {
+			return nil, err
+		}
+		return &qrpcClientWrapper{qc}, nil
+	}
 }
 
 func (lg *LoadGenerator) Warmup(duration time.Duration) {
@@ -130,8 +169,24 @@ func (lg *LoadGenerator) Run(duration time.Duration) {
 func (lg *LoadGenerator) worker(ctx context.Context, id int, client RPCClient) {
 	defer lg.wg.Done()
 
-	rng := mrand.New(mrand.NewSource(time.Now().UnixNano() + int64(id)))
+	pipelining := lg.cfg.Pipelining
+	if pipelining < 1 {
+		pipelining = 1
+	}
 
+	var innerWg sync.WaitGroup
+	for p := 0; p < pipelining; p++ {
+		innerWg.Add(1)
+		go func(pid int) {
+			defer innerWg.Done()
+			rng := mrand.New(mrand.NewSource(time.Now().UnixNano() + int64(id)*1000 + int64(pid)))
+			lg.workerLoop(ctx, id, client, rng)
+		}(p)
+	}
+	innerWg.Wait()
+}
+
+func (lg *LoadGenerator) workerLoop(ctx context.Context, id int, client RPCClient, rng *mrand.Rand) {
 	for {
 		select {
 		case <-ctx.Done():

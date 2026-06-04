@@ -7,7 +7,9 @@ import (
 	"net"
 
 	"github.com/XeshSufferer/qrpc/protos/pb/gen"
+	"github.com/XeshSufferer/qrpc/stress_tester/internal/tls"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 type BenchServer struct {
@@ -40,7 +42,13 @@ func (s *BenchServer) Start() error {
 	if err != nil {
 		return fmt.Errorf("grpc listen: %w", err)
 	}
-	s.srv = grpc.NewServer()
+
+	tlsCfg, err := tls.GetGRPCTLSConfig()
+	if err != nil {
+		return fmt.Errorf("tls config: %w", err)
+	}
+
+	s.srv = grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsCfg)))
 	RegisterBenchServiceServer(s.srv, s)
 	log.Printf("[server] gRPC server listening on %s (cpu_load=%v)", s.addr, s.cpuLoad)
 	return s.srv.Serve(lis)

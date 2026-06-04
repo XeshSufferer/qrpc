@@ -11,16 +11,16 @@ import (
 	"time"
 )
 
-func GetQuicTLSConfig() (*tls.Config, error) {
+func getCert() (tls.Certificate, error) {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return nil, err
+		return tls.Certificate{}, err
 	}
 
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
-			Organization: []string{"QUIC Test"},
+			Organization: []string{"QRPC Test"},
 			CommonName:   "localhost",
 		},
 		NotBefore:             time.Now(),
@@ -33,18 +33,22 @@ func GetQuicTLSConfig() (*tls.Config, error) {
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	if err != nil {
-		return nil, err
+		return tls.Certificate{}, err
 	}
 
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 
 	privBytes, err := x509.MarshalPKCS8PrivateKey(priv)
 	if err != nil {
-		return nil, err
+		return tls.Certificate{}, err
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privBytes})
 
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	return tls.X509KeyPair(certPEM, keyPEM)
+}
+
+func GetQuicTLSConfig() (*tls.Config, error) {
+	cert, err := getCert()
 	if err != nil {
 		return nil, err
 	}
@@ -54,5 +58,17 @@ func GetQuicTLSConfig() (*tls.Config, error) {
 		InsecureSkipVerify: true,
 		NextProtos:         []string{"qrpc"},
 		MinVersion:         tls.VersionTLS13,
+	}, nil
+}
+
+func GetGRPCTLSConfig() (*tls.Config, error) {
+	cert, err := getCert()
+	if err != nil {
+		return nil, err
+	}
+
+	return &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		InsecureSkipVerify: true,
 	}, nil
 }

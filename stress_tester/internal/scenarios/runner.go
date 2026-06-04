@@ -75,6 +75,7 @@ func (r *Runner) runSingle(ctx context.Context, scenario, profileName string, lc
 	log.Printf("Scenario : %s", scenario)
 	log.Printf("Profile  : %s (%s)", profileName, profile.Description)
 	log.Printf("Workers  : %d", lc.Workers)
+	log.Printf("Pipeline : %d", lc.Pipelining)
 	log.Printf("Streams  : %d", lc.Streams)
 	log.Printf("Workload : %s", lc.Workload)
 	log.Printf("Duration : %s", lc.Duration.Duration())

@@ -6,8 +6,9 @@ import (
 	"time"
 
 	"github.com/XeshSufferer/qrpc/protos/pb/gen"
+	"github.com/XeshSufferer/qrpc/stress_tester/internal/tls"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 )
 
 type Client struct {
@@ -19,8 +20,13 @@ func NewClient(addr string) (*Client, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	tlsCfg, err := tls.GetGRPCTLSConfig()
+	if err != nil {
+		return nil, fmt.Errorf("tls config: %w", err)
+	}
+
 	conn, err := grpc.DialContext(ctx, addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
 		grpc.WithBlock(),
 	)
 	if err != nil {

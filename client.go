@@ -41,7 +41,8 @@ func NewClient(ctx context.Context, addr string, tls *tls.Config, connsCount int
 		InitialConnectionReceiveWindow: 16 << 20, // 16 MB
 		MaxConnectionReceiveWindow:     64 << 20, // 64 MB
 
-		MaxIncomingStreams: 10000,
+		MaxIncomingStreams:   10000,
+		HandshakeIdleTimeout: 30 * time.Second,
 	}
 
 	if connsCount < 1 {
