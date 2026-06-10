@@ -7,7 +7,7 @@ require (
 	google.golang.org/protobuf v1.36.11
 )
 
-require github.com/XeshSufferer/aquic-go v0.0.0-00010101000000-000000000000
+require github.com/XeshSufferer/aquic-go v0.0.0-20260606194512-21266fa0e188
 
 require (
 	golang.org/x/crypto v0.52.0 // indirect
@@ -15,4 +15,4 @@ require (
 	golang.org/x/sys v0.45.0 // indirect
 )
 
-// replace github.com/XeshSufferer/aquic-go v0.0.0-00010101000000-000000000000 => ../aquic-go
+// replace github.com/XeshSufferer/aquic-go v0.0.0-20260606194512-21266fa0e188 => ../aquic-go
