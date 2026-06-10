@@ -19,6 +19,8 @@ type Client interface {
 	SendRequest(c context.Context, method, body, headers []byte) (*gen.Response, error)
 	SendRawRequest(c context.Context, req *gen.Request) (*gen.Response, error)
 	ReleaseResponse(resp *gen.Response)
+	SendEvent(c context.Context, method, body, headers []byte) error
+	SendRawEvent(c context.Context, req *gen.Request) error
 }
 
 type ClientImpl struct {
@@ -186,6 +188,53 @@ func (clientimpl *ClientImpl) SendRawRequest(
 	}
 
 	return clientimpl.waitResponse(ctx, ch, req.RequestId)
+}
+
+func (clientimpl *ClientImpl) sendEventInternal(req *gen.Request) error {
+	req.RequestId = 0
+
+	buf, err := clientimpl.encoder.EncodeEvent(req)
+	client.ReleaseRequest(req)
+	if err != nil {
+		return err
+	}
+
+	mux := clientimpl.getMultiplexor()
+	stream, err := mux.GetStream()
+	if err != nil {
+		buf.Release()
+		return err
+	}
+
+	if err := stream.SetWriteDeadline(time.Now().Add(TimeoutDuration)); err != nil {
+		buf.Release()
+		return err
+	}
+
+	_, err = stream.Write(buf.Bytes())
+	buf.Release()
+
+	return err
+}
+
+func (clientimpl *ClientImpl) SendEvent(
+	ctx context.Context,
+	method, body, headers []byte,
+) error {
+
+	r := client.GetRequest()
+	r.Method = method
+	r.Body = body
+	r.Headers = headers
+
+	return clientimpl.sendEventInternal(r)
+}
+
+func (clientimpl *ClientImpl) SendRawEvent(
+	c context.Context,
+	req *gen.Request,
+) error {
+	return clientimpl.sendEventInternal(req)
 }
 
 func (c *ClientImpl) ReleaseResponse(resp *gen.Response) {

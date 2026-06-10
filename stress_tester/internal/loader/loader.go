@@ -117,7 +117,7 @@ func (lg *LoadGenerator) initClient(ctx context.Context) (RPCClient, error) {
 func (lg *LoadGenerator) tryInitClient(ctx context.Context) (RPCClient, error) {
 	switch lg.cfg.System {
 	case config.SystemGRPC:
-		return grpc.NewClient(lg.addr)
+		return grpc.NewClient(lg.addr, lg.cfg.Connections)
 	default:
 		tlsCfg, err := itls.GetQuicTLSConfig()
 		if err != nil {

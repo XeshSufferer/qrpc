@@ -6,6 +6,7 @@ require github.com/XeshSufferer/qrpc v0.0.0
 
 require (
 	github.com/XeshSufferer/aquic-go v0.0.0-20260606194512-21266fa0e188 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250115164207-1a7da9e5054f // indirect
 )

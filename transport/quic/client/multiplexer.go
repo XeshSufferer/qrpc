@@ -140,10 +140,16 @@ func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 		}
 
 		switch flagBuff[0] {
-		case types.RESPONSE_FLAG:
+		case types.RESPONSE_FLAG, types.RESPONSE_ZSTD_FLAG:
+			data, err := maybeDecompress(reqBuff, flagBuff[0])
+			if err != nil {
+				slog.Error("error by decompress response", "err", err)
+				continue
+			}
+
 			resp := GetResponse()
 
-			err := resp.UnmarshalVT(reqBuff)
+			err = resp.UnmarshalVT(data)
 			if err != nil {
 				slog.Error("error by unmarshal response buffer", "err", err)
 				ReleaseResponse(resp)
@@ -161,10 +167,16 @@ func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 				ReleaseResponse(resp)
 			}
 
-		case types.REQUEST_FLAG:
+		case types.REQUEST_FLAG, types.REQUEST_ZSTD_FLAG:
+			data, err := maybeDecompress(reqBuff, flagBuff[0])
+			if err != nil {
+				slog.Error("error by decompress request", "err", err)
+				continue
+			}
+
 			req := GetRequest()
 
-			err := req.UnmarshalVT(reqBuff)
+			err = req.UnmarshalVT(data)
 			if err != nil {
 				slog.Error("error by unmarshal request buffer", "err", err)
 				ReleaseRequest(req)
@@ -181,7 +193,34 @@ func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 			} else {
 				ReleaseRequest(req)
 			}
+
+		case types.EVENT_FLAG, types.EVENT_ZSTD_FLAG:
+			data, err := maybeDecompress(reqBuff, flagBuff[0])
+			if err != nil {
+				slog.Error("error by decompress event", "err", err)
+				continue
+			}
+
+			req := GetRequest()
+			err = req.UnmarshalVT(data)
+			if err != nil {
+				slog.Error("error by unmarshal event buffer", "err", err)
+				ReleaseRequest(req)
+				continue
+			}
+
+			slog.Debug("received event", "method", string(req.Method), "request_id", req.RequestId)
+			ReleaseRequest(req)
 		}
+	}
+}
+
+func maybeDecompress(data []byte, flag byte) ([]byte, error) {
+	switch flag {
+	case types.REQUEST_ZSTD_FLAG, types.RESPONSE_ZSTD_FLAG, types.EVENT_ZSTD_FLAG:
+		return internal.DecompressZstd(data)
+	default:
+		return data, nil
 	}
 }
 

@@ -7,7 +7,10 @@ require (
 	google.golang.org/protobuf v1.36.11
 )
 
-require github.com/XeshSufferer/aquic-go v0.0.0-20260606194512-21266fa0e188
+require (
+	github.com/XeshSufferer/aquic-go v0.0.0-20260606194512-21266fa0e188
+	github.com/klauspost/compress v1.17.0
+)
 
 require (
 	golang.org/x/crypto v0.52.0 // indirect

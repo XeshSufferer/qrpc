@@ -20,13 +20,15 @@ import (
 type QRpcServer interface {
 	startListen()
 	AddHandler(method string, handler func(*gen.Request, *gen.Response))
+	AddEventHandler(method string, handler func(*gen.Request))
 }
 
 type QRPCServerImpl struct {
-	listener *quic.Listener
-	conns    map[uint32]*quic.Conn
-	handlers map[string]func(*gen.Request, *gen.Response)
-	encoder  internal.Encoder
+	listener      *quic.Listener
+	conns         map[uint32]*quic.Conn
+	handlers      map[string]func(*gen.Request, *gen.Response)
+	eventHandlers map[string]func(*gen.Request)
+	encoder       internal.Encoder
 }
 
 func NewServer(addr string, tls *tls.Config) (QRpcServer, error) {
@@ -61,15 +63,20 @@ func NewServer(addr string, tls *tls.Config) (QRpcServer, error) {
 
 func newServer(listener *quic.Listener) QRpcServer {
 	return &QRPCServerImpl{
-		listener: listener,
-		conns:    make(map[uint32]*quic.Conn, 4),
-		handlers: make(map[string]func(*gen.Request, *gen.Response), 4),
-		encoder:  internal.NewEncoder(),
+		listener:      listener,
+		conns:         make(map[uint32]*quic.Conn, 4),
+		handlers:      make(map[string]func(*gen.Request, *gen.Response), 4),
+		eventHandlers: make(map[string]func(*gen.Request), 4),
+		encoder:       internal.NewEncoder(),
 	}
 }
 
 func (s *QRPCServerImpl) AddHandler(method string, handler func(*gen.Request, *gen.Response)) {
 	s.handlers[method] = handler
+}
+
+func (s *QRPCServerImpl) AddEventHandler(method string, handler func(*gen.Request)) {
+	s.eventHandlers[method] = handler
 }
 
 func (s *QRPCServerImpl) startListen() {
@@ -155,11 +162,17 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 		}
 
 		switch flagBuff[0] {
-		case types.REQUEST_FLAG:
+		case types.REQUEST_FLAG, types.REQUEST_ZSTD_FLAG:
+			data, err := s.maybeDecompress(reqBuff, flagBuff[0])
+			if err != nil {
+				slog.Error("error by decompress request", "err", err)
+				continue
+			}
+
 			req := client.GetRequest()
 			resp := client.GetResponse()
 
-			err := req.UnmarshalVT(reqBuff)
+			err = req.UnmarshalVT(data)
 			if err != nil {
 				slog.Error("error by unmarshal request buffer", "err", err)
 				client.ReleaseRequest(req)
@@ -197,7 +210,42 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 				slog.Error("error by writing response buffer", "err", err)
 				return
 			}
+
+		case types.EVENT_FLAG, types.EVENT_ZSTD_FLAG:
+			data, err := s.maybeDecompress(reqBuff, flagBuff[0])
+			if err != nil {
+				slog.Error("error by decompress event", "err", err)
+				continue
+			}
+
+			req := client.GetRequest()
+
+			err = req.UnmarshalVT(data)
+			if err != nil {
+				slog.Error("error by unmarshal event buffer", "err", err)
+				client.ReleaseRequest(req)
+				continue
+			}
+
+			handler, exists := s.eventHandlers[string(req.Method)]
+			if !exists {
+				slog.Error("event handler not found", "method", string(req.Method))
+				client.ReleaseRequest(req)
+				continue
+			}
+
+			handler(req)
+			client.ReleaseRequest(req)
 		}
+	}
+}
+
+func (s *QRPCServerImpl) maybeDecompress(data []byte, flag byte) ([]byte, error) {
+	switch flag {
+	case types.REQUEST_ZSTD_FLAG, types.EVENT_ZSTD_FLAG:
+		return internal.DecompressZstd(data)
+	default:
+		return data, nil
 	}
 }
 
