@@ -10,30 +10,40 @@ import (
 
 const (
 	headerSize      = 5 // 4 bytes length + 1 byte flag
-	defaultBufSize  = 1024
-	maxPooledBuffer = 64 << 10 // 64KB
+	defaultBufSize = 1024
 )
 
-type Encoder interface {
-	EncodeRequest(req *gen.Request) ([]byte, error)
-	EncodeResponse(resp *gen.Response) ([]byte, error)
-	ReleaseBuffer(buf []byte)
+type Buffer struct {
+	data []byte
+	used int
 }
 
-type EncoderImpl struct {
-	buffers *sync.Pool
+func (b *Buffer) Bytes() []byte { return b.data[:b.used] }
+
+func (b *Buffer) Release() {
+	if b == nil {
+		return
+	}
+	b.data = b.data[:cap(b.data)]
+	b.used = 0
+	bufferPool.Put(b)
 }
+
+var bufferPool = sync.Pool{
+	New: func() any {
+		return &Buffer{data: make([]byte, defaultBufSize)}
+	},
+}
+
+type Encoder interface {
+	EncodeRequest(req *gen.Request) (*Buffer, error)
+	EncodeResponse(resp *gen.Response) (*Buffer, error)
+}
+
+type EncoderImpl struct{}
 
 func NewEncoder() Encoder {
-	pool := &sync.Pool{
-		New: func() any {
-			return make([]byte, defaultBufSize)
-		},
-	}
-
-	return &EncoderImpl{
-		buffers: pool,
-	}
+	return &EncoderImpl{}
 }
 
 // Frame format:
@@ -45,7 +55,7 @@ func NewEncoder() Encoder {
 //
 // Example:
 // [00 00 00 15][01][protobuf...]
-func (e *EncoderImpl) EncodeRequest(req *gen.Request) ([]byte, error) {
+func (e *EncoderImpl) EncodeRequest(req *gen.Request) (*Buffer, error) {
 	return e.encodeMessage(
 		req.SizeVT(),
 		types.REQUEST_FLAG,
@@ -53,7 +63,7 @@ func (e *EncoderImpl) EncodeRequest(req *gen.Request) ([]byte, error) {
 	)
 }
 
-func (e *EncoderImpl) EncodeResponse(resp *gen.Response) ([]byte, error) {
+func (e *EncoderImpl) EncodeResponse(resp *gen.Response) (*Buffer, error) {
 	return e.encodeMessage(
 		resp.SizeVT(),
 		types.RESPONSE_FLAG,
@@ -65,57 +75,44 @@ func (e *EncoderImpl) encodeMessage(
 	payloadSize int,
 	flag byte,
 	marshal func([]byte) (int, error),
-) ([]byte, error) {
+) (*Buffer, error) {
 
 	totalSize := headerSize + payloadSize
 
-	buf := e.getBuffer(totalSize)
+	b := getBuffer(totalSize)
 
 	// protobuf payload region
-	payload := buf[headerSize:]
+	payload := b.data[headerSize:]
 
 	// vtprotobuf writes backwards into the provided buffer
 	n, err := marshal(payload)
 	if err != nil {
-		e.ReleaseBuffer(buf)
+		b.Release()
 		return nil, err
 	}
 
-	// actual payload start after reverse write
-	payloadOffset := len(payload) - n
-
-	// move payload if marshal did not fill from beginning
-	if payloadOffset != 0 {
-		copy(payload[:n], payload[payloadOffset:])
-	}
-
 	// write flag
-	buf[4] = flag
+	b.data[4] = flag
 
 	// write frame length:
 	// 1 byte flag + protobuf payload
 	binary.BigEndian.PutUint32(
-		buf[:4],
+		b.data[:4],
 		uint32(1+n),
 	)
 
-	return buf[:headerSize+n], nil
+	b.used = headerSize + n
+
+	return b, nil
 }
 
-func (e *EncoderImpl) ReleaseBuffer(buf []byte) {
-	if buf == nil {
-		return
+func getBuffer(size int) *Buffer {
+	b := bufferPool.Get().(*Buffer)
+
+	if cap(b.data) < size {
+		return &Buffer{data: make([]byte, size)}
 	}
 
-	e.buffers.Put(buf[:cap(buf)])
-}
-
-func (e *EncoderImpl) getBuffer(size int) []byte {
-	buf := e.buffers.Get().([]byte)
-
-	if cap(buf) < size {
-		return make([]byte, size)
-	}
-
-	return buf[:size]
+	b.data = b.data[:size]
+	return b
 }

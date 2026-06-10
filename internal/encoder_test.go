@@ -20,7 +20,7 @@ func benchmarkEncodeRequest(b *testing.B, bodySize int) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		encoder.ReleaseBuffer(buf)
+		buf.Release()
 	}
 }
 
@@ -42,7 +42,7 @@ func benchmarkEncodeResponse(b *testing.B, bodySize int) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		encoder.ReleaseBuffer(buf)
+		buf.Release()
 	}
 }
 
@@ -65,7 +65,7 @@ func BenchmarkEncodeRequest_Parallel(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			encoder.ReleaseBuffer(buf)
+			buf.Release()
 		}
 	})
 }
@@ -85,18 +85,17 @@ func BenchmarkEncodeResponse_Parallel(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			encoder.ReleaseBuffer(buf)
+			buf.Release()
 		}
 	})
 }
 
 func BenchmarkBufferPool(b *testing.B) {
-	encoder := NewEncoder()
 	sizes := []int{64, 256, 1024, 4096, 16384}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		size := sizes[i%len(sizes)]
-		buf := encoder.(*EncoderImpl).getBuffer(size)
-		encoder.ReleaseBuffer(buf)
+		buf := getBuffer(size)
+		buf.Release()
 	}
 }

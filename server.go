@@ -14,7 +14,7 @@ import (
 	"github.com/XeshSufferer/qrpc/protos/pb/gen"
 	"github.com/XeshSufferer/qrpc/transport/quic/client"
 	"github.com/XeshSufferer/qrpc/transport/types"
-	"github.com/quic-go/quic-go"
+	"github.com/XeshSufferer/aquic-go"
 )
 
 type QRpcServer interface {
@@ -187,13 +187,11 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 
 			if err != nil {
 				slog.Error("error by encoding response", "err", err)
-				s.encoder.ReleaseBuffer(buf)
 				continue
 			}
 
-			_, err = stream.Write(buf)
-
-			s.encoder.ReleaseBuffer(buf)
+			_, err = stream.Write(buf.Bytes())
+			buf.Release()
 
 			if err != nil {
 				slog.Error("error by writing response buffer", "err", err)

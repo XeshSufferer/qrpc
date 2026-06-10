@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 
 	"github.com/XeshSufferer/qrpc/transport/types"
-	"github.com/quic-go/quic-go"
+	"github.com/XeshSufferer/aquic-go"
 )
 
 type Balancer interface {
@@ -51,10 +51,11 @@ func (b *BalancerImpl) AddStream(stream *quic.Stream) {
 	defer b.m.Unlock()
 
 	current := b.snapshot.Load()
+	n := len(current.streams)
 
-	newStreams := make([]*quic.Stream, len(current.streams)+1)
+	newStreams := make([]*quic.Stream, n+1, n+1)
 	copy(newStreams, current.streams)
-	newStreams[len(current.streams)] = stream
+	newStreams[n] = stream
 
 	b.snapshot.Store(&streamsSnapshot{
 		streams: newStreams,

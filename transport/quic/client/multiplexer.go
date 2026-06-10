@@ -12,7 +12,7 @@ import (
 	"github.com/XeshSufferer/qrpc/protos/pb/gen"
 	qrpc_quic "github.com/XeshSufferer/qrpc/transport/quic"
 	"github.com/XeshSufferer/qrpc/transport/types"
-	"github.com/quic-go/quic-go"
+	"github.com/XeshSufferer/aquic-go"
 )
 
 type Multiplexer interface {
@@ -194,12 +194,24 @@ func GetResponse() *gen.Response {
 }
 
 func ReleaseRequest(req *gen.Request) {
+	headers := req.Headers[:0]
+	method := req.Method[:0]
+	body := req.Body[:0]
 	req.Reset()
+	req.Headers = headers
+	req.Method = method
+	req.Body = body
 	requests.Put(req)
 }
 
 func ReleaseResponse(resp *gen.Response) {
+	headers := resp.Headers[:0]
+	method := resp.Method[:0]
+	body := resp.Body[:0]
 	resp.Reset()
+	resp.Headers = headers
+	resp.Method = method
+	resp.Body = body
 	responses.Put(resp)
 }
 

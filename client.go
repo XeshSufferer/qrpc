@@ -12,12 +12,13 @@ import (
 	"github.com/XeshSufferer/qrpc/protos/pb/gen"
 	qrpc_quic "github.com/XeshSufferer/qrpc/transport/quic"
 	"github.com/XeshSufferer/qrpc/transport/quic/client"
-	"github.com/quic-go/quic-go"
+	"github.com/XeshSufferer/aquic-go"
 )
 
 type Client interface {
 	SendRequest(c context.Context, method, body, headers []byte) (*gen.Response, error)
 	SendRawRequest(c context.Context, req *gen.Request) (*gen.Response, error)
+	ReleaseResponse(resp *gen.Response)
 }
 
 type ClientImpl struct {
@@ -117,16 +118,16 @@ func (clientimpl *ClientImpl) sendRequestInternal(req *gen.Request) (chan *gen.R
 	}
 
 	if err := stream.SetWriteDeadline(time.Now().Add(TimeoutDuration)); err != nil {
+		buf.Release()
 		return nil, err
 	}
 
-	_, err = stream.Write(buf)
+	_, err = stream.Write(buf.Bytes())
+	buf.Release()
 
 	if err != nil {
 		return nil, err
 	}
-
-	clientimpl.encoder.ReleaseBuffer(buf)
 
 	return ch, nil
 }
@@ -185,6 +186,10 @@ func (clientimpl *ClientImpl) SendRawRequest(
 	}
 
 	return clientimpl.waitResponse(ctx, ch, req.RequestId)
+}
+
+func (c *ClientImpl) ReleaseResponse(resp *gen.Response) {
+	client.ReleaseResponse(resp)
 }
 
 func (c *ClientImpl) getChan() chan *gen.Response {

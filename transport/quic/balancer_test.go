@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"testing"
 
-	quicgo "github.com/quic-go/quic-go"
+	quicgo "github.com/XeshSufferer/aquic-go"
 )
 
 func BenchmarkBalancerGetStream(b *testing.B) {

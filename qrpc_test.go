@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/XeshSufferer/qrpc/protos/pb/gen"
-	"github.com/quic-go/quic-go"
+	"github.com/XeshSufferer/aquic-go"
 )
 
 func TestMain(m *testing.M) {
@@ -135,6 +135,7 @@ func BenchmarkRoundTrip_16B(b *testing.B) {
 		if resp.Code != 200 {
 			b.Fatal("unexpected status code")
 		}
+		client.ReleaseResponse(resp)
 	}
 }
 
@@ -151,6 +152,7 @@ func BenchmarkRoundTrip_1KB(b *testing.B) {
 		if resp.Code != 200 {
 			b.Fatal("unexpected status code")
 		}
+		client.ReleaseResponse(resp)
 	}
 }
 
@@ -167,6 +169,7 @@ func BenchmarkRoundTrip_4KB(b *testing.B) {
 		if resp.Code != 200 {
 			b.Fatal("unexpected status code")
 		}
+		client.ReleaseResponse(resp)
 	}
 }
 
@@ -184,6 +187,7 @@ func BenchmarkRoundTripParallel(b *testing.B) {
 			if resp.Code != 200 {
 				b.Fatal("unexpected status code")
 			}
+			client.ReleaseResponse(resp)
 		}
 	})
 }
@@ -202,6 +206,7 @@ func BenchmarkRoundTrip_1KB_WithStartedServer(b *testing.B) {
 		if resp.Code != 200 {
 			b.Fatal("unexpected status code")
 		}
+		client.ReleaseResponse(resp)
 	}
 }
 
@@ -219,6 +224,7 @@ func BenchmarkRoundTrip_4KB_WithStartedServer(b *testing.B) {
 		if resp.Code != 200 {
 			b.Fatal("unexpected status code")
 		}
+		client.ReleaseResponse(resp)
 	}
 }
 
@@ -237,5 +243,6 @@ func BenchmarkRoundTrip_16KB_WithStartedServer(b *testing.B) {
 		if resp.Code != 200 {
 			b.Fatal("unexpected status code")
 		}
+		client.ReleaseResponse(resp)
 	}
 }
