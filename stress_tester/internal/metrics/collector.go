@@ -225,12 +225,13 @@ func SaveJSON(report *Report, outputDir, prefix string) (string, error) {
 		return "", fmt.Errorf("create output dir: %w", err)
 	}
 
-	filename := filepath.Join(outputDir, fmt.Sprintf("%s_%s_%s.json",
-		prefix, report.Scenario, report.Profile))
-	if report.System != "" {
-		filename = filepath.Join(outputDir, fmt.Sprintf("%s_%s_%s_%s.json",
-			prefix, report.Scenario, report.Profile, report.System))
+	sys := string(report.System)
+	if sys != "" {
+		sys = "_" + sys
 	}
+	filename := filepath.Join(outputDir, fmt.Sprintf("%s_%s_%s%s_conn%d_pay%d.json",
+		prefix, report.Scenario, report.Profile, sys,
+		report.LoadConfig.Connections, report.LoadConfig.PayloadSize))
 
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
@@ -252,8 +253,9 @@ func SaveCSV(report *Report, outputDir, prefix string) (string, error) {
 		return "", fmt.Errorf("create output dir: %w", err)
 	}
 
-	filename := filepath.Join(outputDir, fmt.Sprintf("%s_%s_%s_%s.csv",
-		prefix, report.Scenario, report.Profile, report.System))
+	filename := filepath.Join(outputDir, fmt.Sprintf("%s_%s_%s_%s_conn%d_pay%d.csv",
+		prefix, report.Scenario, report.Profile, report.System,
+		report.LoadConfig.Connections, report.LoadConfig.PayloadSize))
 
 	f, err := os.Create(filename)
 	if err != nil {
