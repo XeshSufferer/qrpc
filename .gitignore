@@ -30,6 +30,7 @@ go.work.sum
 # features testing
 /__TEST__
 /stress_tester/results
+/runall_stress/results
 # Editor/IDE
 # .idea/
 # .vscode/

@@ -151,58 +151,31 @@ Requests are matched to responses via a random `uint64` `request_id`.
 
 ## Performance
 
-Benchmarks run via the stress-test framework in `stress_tester/` on localhost with Linux `tc` netem for network emulation. All runs use ~100B fixed payload and 10s test duration (3s warmup) unless noted. Results reflect the `concurrency_stress` scenario at varying network profiles.
+Benchmarks run on localhost with Linux `tc` netem for network emulation. All runs test **5 network profiles** × **5 scenarios** × **2 payload sizes (100 B / 4 KB)** × **2 connection counts (1 / 16)**, using **64 pipelining**, **16 QUIC streams**, and **10s duration + 3s warmup**.
 
-### qrpc — Degradation Across Network Profiles
+### Throughput (RPS) — Best Across Payload Sizes & Connection Counts
 
-| Profile   | RTT    | Loss  | Workers | RPS      | Avg       | P50       | P95       | P99       | Success |
-|-----------|--------|-------|---------|----------|-----------|-----------|-----------|-----------|---------|
-| clean     | 1ms    | 0%    | 12      | **4,407**| 2.1 ms    | 2.1 ms    | 2.2 ms    | 2.2 ms    | 100%    |
-| wifi      | 5ms    | 0.1%  | 64      | 119      | 411 ms    | 200 ms    | 239 ms    | 7.0 s     | 100%    |
-| lte       | 30ms   | 1%    | 12      | 128      | 72 ms     | 70 ms     | 78 ms     | 226 ms    | 100%    |
-| high_loss | 20ms   | 70%   | 50      | 25       | 3.8 s     | 4.2 s     | 9.6 s     | 9.6 s     | 100%    |
-| hell_net  | 300ms  | 30%   | 50      | 587      | 3.9 s     | 3.6 s     | 7.8 s     | 8.8 s     | 100%    |
-| extreme   | 150ms  | 10%   | 50      | 1,802    | 1.8 s     | 1.0 s     | 5.8 s     | 10.8 s    | 100%    |
-| no_net    | 500ms  | 50%   | 50      | 165      | 8.7 s     | 10.2 s    | 12.1 s    | 12.7 s    | 100%    |
+| Scenario | Workers | clean | wifi | lte | bad_lte | extreme |
+|---|---|---|---|---|---|---|
+| baseline_latency | 1 | **23,607** | 3,690 | 625 | 278 | 102 |
+| concurrency_stress | 100 | **506,590** | 60,334 | 5,355 | 1,576 | 827 |
+| multiplex_stress | 50 | **478,703** | 60,234 | 4,864 | 1,229 | 720 |
+| loss_sensitivity | 100 | **484,582** | 59,982 | 4,568 | 1,207 | 619 |
+| rtt_scaling | 50 | **462,074** | 60,467 | 5,316 | 1,339 | 831 |
 
-> qrpc achieves **100% success rate across all profiles**, including 50% packet loss and 500ms RTT. Latency degrades predictably with network conditions.
+All scenarios maintain **100% success rate** across all network profiles.
 
-### qrpc vs gRPC — Extreme & No-Network
+### Tail Latency (P95) — Worst Across Payload Sizes & Connection Counts
 
-| Metric   | Extreme qrpc | Extreme gRPC | No-Net qrpc | No-Net gRPC |
-|----------|-------------|--------------|-------------|--------------|
-| RPS      | **1,802**   | 716          | **165**     | 39           |
-| Avg      | **1.77 s**  | 3.77 s       | 8.70 s      | **4.33 s**   |
-| P50      | **1.04 s**  | 3.68 s       | 10.2 s      | **5.01 s**   |
-| P95      | 5.76 s      | **4.99 s**   | 12.1 s      | **5.15 s**   |
-| P99      | 10.8 s      | **5.23 s**   | 12.7 s      | **5.38 s**   |
-| Success  | 100%        | 100%         | 100%        | 100%         |
+| Scenario | clean | wifi | lte | bad_lte | extreme |
+|---|---|---|---|---|---|
+| baseline_latency | 3.4 ms | 23.5 ms | 405 ms | 1.74 s | 2.85 s |
+| concurrency_stress | 1.74 s | 7.69 s | 8.74 s | 8.46 s | 8.46 s |
+| multiplex_stress | 23.8 ms | 5.04 s | 5.90 s | 4.84 s | 7.07 s |
+| loss_sensitivity | 1.60 s | 4.89 s | 4.99 s | 7.24 s | 6.49 s |
+| rtt_scaling | 175 ms | 5.08 s | 5.39 s | 6.13 s | 6.68 s |
 
-> Under extreme conditions (150ms RTT, 10% loss) qrpc achieves **2.5× higher throughput** than gRPC with **52% lower avg latency**. At 50% loss (no_network) throughput advantage grows to **4.2×**.
-
-### Multiplex Stress — Mixed Payloads (50 workers, 64 streams, mixed 1 KB + 1–11 MB, clean)
-
-| Metric   | qrpc        |
-|----------|-------------|
-| RPS      | 76          |
-| Avg      | 516 ms      |
-| P50      | 163 ms      |
-| P95      | 2.02 s      |
-| P99      | 3.18 s      |
-| Success  | 100%        |
-
----
-
-## Summary
-
-| Profile        | Key finding                                |
-|----------------|--------------------------------------------|
-| clean          | 4,400 RPS, ~2 ms avg latency              |
-| extreme (150ms, 10% loss) | **2.5× throughput vs gRPC**, 100% success |
-| no_network (500ms, 50% loss) | **4.2× throughput vs gRPC**, 100% success |
-| high loss (70–85%) | 100% delivery, degraded throughput      |
-
-qrpc's QUIC-based transport excels under real-world network conditions — packet loss, high latency, and bandwidth constraints — where it significantly outperforms gRPC in throughput while maintaining 100% delivery.
+> On clean networks qrpc delivers **23K–506K RPS** with low millisecond latency. Under extreme conditions (150ms RTT, 10% loss) throughput degrades predictably while maintaining 100% delivery — **102–831 RPS** with P95 latency of 2.85–8.46 s depending on concurrency.
 
 ---
 
@@ -228,21 +201,30 @@ go test -bench=. -benchmem ./...
 
 ```bash
 cd stress_tester
-go build -o qrpc-stress .
+go build -o stress_tester .
 
 # Start a benchmark server
-sudo ./qrpc-stress server -addr 127.0.0.1:8081
+sudo ./stress_tester server -addr 127.0.0.1:8081
 
 # Run a specific scenario
-sudo ./qrpc-stress run -scenario baseline_latency -profile clean,wifi,lte -system qrpc -addr 127.0.0.1:8081
+sudo ./stress_tester run -scenario baseline_latency -profile clean,wifi,lte -system qrpc -addr 127.0.0.1:8081
 
 # Run the full automated suite
 sudo ./run_all.sh --duration 10s --warmup 3s
 ```
 
+### Automated Suite (100 runs)
+
+```bash
+go run ./runall_stress/main.go
+```
+
+Runs all 5 scenarios × 5 profiles × 2 payload sizes × 2 connection counts and generates `results/heatmap.html`.
+
 ### HTML Report
 
 ```bash
+cd stress_tester
 python3 analyze.py results --html report.html
 ```
 
@@ -252,29 +234,25 @@ Network profiles are applied via Linux `tc` netem (requires `sudo`).
 
 ## Network Profiles
 
-| Profile         | RTT    | Jitter | Loss | Bandwidth | Description              |
-|-----------------|--------|--------|------|-----------|--------------------------|
-| clean           | 1ms    | 0ms    | 0%   | 1000 Mbps | Local / DC               |
-| wifi            | 5ms    | 2ms    | 0.1% | 100 Mbps  | Typical WiFi             |
-| lte             | 30ms   | 10ms   | 1%   | 50 Mbps   | 4G LTE                   |
-| bad_lte         | 60ms   | 20ms   | 5%   | 10 Mbps   | Poor LTE                 |
-| high_loss       | 20ms   | 2ms    | 70%  | 5 Mbps    | High packet loss         |
-| heavy_high_loss | 20ms   | 2ms    | 85%  | 5 Mbps    | Extreme packet loss      |
-| extreme         | 150ms  | 50ms   | 10%  | 5 Mbps    | Extreme stress           |
-| hell_network    | 300ms  | 100ms  | 30%  | 2 Mbps    | Hell network conditions  |
-| no_network      | 500ms  | 200ms  | 50%  | 1 Mbps    | Near-total network loss  |
+| Profile   | RTT  | Jitter | Loss | Bandwidth | Description        |
+|-----------|------|--------|------|-----------|--------------------|
+| clean     | 1ms  | 0ms    | 0%   | 1000 Mbps | Local / DC         |
+| wifi      | 5ms  | 2ms    | 0.1% | 100 Mbps  | Typical WiFi       |
+| lte       | 30ms | 10ms   | 1%   | 50 Mbps   | 4G LTE             |
+| bad_lte   | 60ms | 20ms   | 5%   | 10 Mbps   | Poor LTE           |
+| extreme   | 150ms| 50ms   | 10%  | 5 Mbps    | Extreme conditions |
 
 ---
 
 ## Test Scenarios
 
-| Scenario           | Workers | Streams | Payload                 | Profiles Used                                              |
-|--------------------|---------|---------|-------------------------|------------------------------------------------------------|
-| baseline_latency   | 1       | 1       | 1 KB fixed              | clean, wifi, lte                                           |
-| concurrency_stress | 12–100  | 16–32   | 100B fixed (—32768 rand)| clean, wifi, lte, high_loss, heavy_high_loss, hell_network, extreme, no_network |
-| multiplex_stress   | 50      | 64      | mixed 1 KB + 1–11 MB    | clean                                                      |
-| loss_sensitivity   | 100     | 32      | 1–16 KB random          | clean, wifi, lte, bad_lte, extreme                         |
-| rtt_scaling        | 50      | 16      | 1 KB fixed                 | clean, wifi, lte, bad_lte, extreme |
+| Scenario           | Workers | Streams | Pipelining | Payload            | Profiles Used                       |
+|--------------------|---------|---------|------------|--------------------|-------------------------------------|
+| baseline_latency   | 1       | 16      | 64         | 100 B / 4 KB fixed | clean, wifi, lte, bad_lte, extreme |
+| concurrency_stress | 100     | 16      | 64         | 100 B / 4 KB fixed | clean, wifi, lte, bad_lte, extreme |
+| multiplex_stress   | 50      | 16      | 64         | 100 B / 4 KB fixed | clean, wifi, lte, bad_lte, extreme |
+| loss_sensitivity   | 100     | 16      | 64         | 100 B / 4 KB fixed | clean, wifi, lte, bad_lte, extreme |
+| rtt_scaling        | 50      | 16      | 64         | 100 B / 4 KB fixed | clean, wifi, lte, bad_lte, extreme |
 
 ---
 
