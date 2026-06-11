@@ -5,7 +5,7 @@
 [![Go Version](https://img.shields.io/badge/Go-1.26.2-blue.svg)](go.mod)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 
-**qrpc** — высокопроизводительный RPC-фреймворк поверх QUIC (транспорт HTTP/3). Использует protocol buffers с ускорением vtprotobuf, lock-free мультиплексирование стримов и агрессивный object pooling для минимальных задержек и максимальной пропускной способности.
+**qrpc** — высокопроизводительный RPC-фреймворк поверх QUIC (транспорт HTTP/3). Использует protocol buffers с ускорением vtprotobuf, lock-free мультиплексирование стримов и агрессивный object pooling для минимальных задержек и максимальной пропускной способности. Поддерживает как запрос-ответ RPC, так и однонаправленные события.
 
 ---
 
@@ -16,7 +16,8 @@
 - **Мультиплексирование стримов** — N предварительно открытых QUIC-стримов на соединение, lock-free atomic round-robin балансировщик.
 - **Object Pooling** — `sync.Pool` для буферов кодировщика, объектов запросов/ответов и каналов ответов — минимизация нагрузки на GC.
 - **Sharded Concurrent Map** — 256-секционная конкурентная карта для O(1) диспетчеризации по `request_id`.
-- **Простой API** — `NewServer` → `AddHandler`, `NewClient` → `SendRequest`.
+- **События** — однонаправленная доставка событий наряду с RPC.
+- **Простой API** — `NewServer` → `AddHandler` / `AddEventHandler`, `NewClient` → `NewRequest` → `SendRequest` / `SendEvent`.
 
 ---
 
@@ -31,7 +32,7 @@ import (
   "crypto/tls"
   "log"
   "github.com/XeshSufferer/qrpc"
-  "github.com/XeshSufferer/qrpc/protos/pb/gen"
+  "github.com/XeshSufferer/qrpc/internal"
 )
 
 func main() {
@@ -40,9 +41,9 @@ func main() {
   if err != nil {
     log.Fatal(err)
   }
-  server.AddHandler("echo", func(req *gen.Request, resp *gen.Response) {
-    resp.Body = req.Body
-    resp.Code = 0
+  server.AddHandler("echo", func(c internal.Ctx) {
+    c.SetBody(c.Body())
+    c.SetCode(0)
   })
   select {}
 }
@@ -66,15 +67,33 @@ func main() {
   if err != nil {
     log.Fatal(err)
   }
-  resp, err := client.SendRequest(
-    context.Background(),
-    []byte("echo"), []byte("hello qrpc"), nil,
-  )
+
+  req := client.NewRequest()
+  req.SetMethod([]byte("echo"))
+  req.SetBody([]byte("hello qrpc"))
+
+  resp, err := client.SendRequest(context.Background(), req)
   if err != nil {
     log.Fatal(err)
   }
   log.Printf("Response: %s", resp.Body)
+  client.ReleaseResponse(resp)
 }
+```
+
+### События (однонаправленная отправка)
+
+```go
+// Сервер
+server.AddEventHandler("notify", func(c internal.EventCtx) {
+  log.Printf("событие %s: %s", c.Method(), c.Body())
+})
+
+// Клиент
+req := client.NewRequest()
+req.SetMethod([]byte("notify"))
+req.SetBody([]byte("hello"))
+err := client.SendEvent(context.Background(), req)
 ```
 
 ---
@@ -88,9 +107,12 @@ func main() {
 │  4 байта: длина payload (big-endian uint32)  │
 ├─────────────────────────────────────────────┤
 │  1 байт:  флаг                               │
-│           REQUEST  = 1                       │
-│           RESPONSE = 2                       │
-│           EVENT    = 3                       │
+│           REQUEST       = 1                  │
+│           RESPONSE      = 2                  │
+│           EVENT         = 3                  │
+│           REQUEST_ZSTD  = 4                  │
+│           RESPONSE_ZSTD = 5                  │
+│           EVENT_ZSTD    = 6                  │
 ├─────────────────────────────────────────────┤
 │  N байт: protobuf Request / Response         │
 └─────────────────────────────────────────────┘
@@ -118,7 +140,9 @@ message Response {
 }
 ```
 
-Запросы сопоставляются с ответами через случайный `uint64` `request_id`.
+Запросы сопоставляются с ответами через случайный `uint64` `request_id`. События используют `request_id = 0` и не генерируют ответ.
+
+Payload более 16 КБ автоматически сжимается **zstd** (флаги 4–6).
 
 ---
 
@@ -143,9 +167,57 @@ message Response {
 └───────────────┘                     └───────────────┘
 ```
 
-**Клиент.** При `NewClient` мультиплексор открывает N QUIC-стримов (по умолчанию 32) и запускает по горутине чтения на стрим. `SendRequest` генерирует случайный `request_id`, сохраняет `chan *Response` в sharded map, кодирует запрос и отправляет на стрим, полученный от round-robin балансировщика. Горутина чтения декодирует входящие фреймы, находит `request_id` в карте и отправляет ответ в канал.
+**Клиент.** При `NewClient` мультиплексор открывает N QUIC-стримов (по умолчанию 32) на соединение и запускает по горутине чтения на стрим. `NewRequest` получает из пула `ReqCtx`, обёртку над protobuf `Request`. `SendRequest` генерирует случайный `request_id`, сохраняет `chan *Response` в sharded map, кодирует запрос через encoder и отправляет на стрим, полученный от round-robin балансировщика. Горутина чтения декодирует входящие фреймы, находит `request_id` в карте и отправляет ответ в канал. `SendEvent` отправляет однонаправленный фрейм с `request_id = 0` без ожидания ответа.
 
-**Сервер.** `NewServer` запускает QUIC-слушатель. Каждое принятое соединение получает горутину, принимающую стримы. Каждый стрим выполняет цикл чтения: декодирует фрейм, диспетчеризует к зарегистрированному обработчику, кодирует ответ и отправляет обратно.
+**Сервер.** `NewServer` запускает QUIC-слушатель. Каждое принятое соединение получает горутину, принимающую стримы. Каждый стрим выполняет цикл чтения: декодирует фрейм. RPC-запросы (флаг 1/4) диспетчеризуются к хендлеру через `internal.Ctx`; хендлер устанавливает ответ, сервер кодирует и отправляет его обратно. События (флаг 3/6) диспетчеризуются к обработчику событий через `internal.EventCtx`; ответ не отправляется.
+
+---
+
+## Справочник API
+
+### Сервер
+
+```go
+func NewServer(addr string, tls *tls.Config) (QRpcServer, error)
+```
+
+| Метод | Сигнатура | Описание |
+|--------|-----------|----------|
+| `AddHandler` | `(method string, handler func(internal.Ctx))` | Регистрация RPC-обработчика |
+| `AddEventHandler` | `(method string, handler func(internal.EventCtx))` | Регистрация обработчика событий |
+
+**`internal.Ctx`** (RPC-обработчик):
+
+| Метод | Возвращает | Описание |
+|--------|-----------|----------|
+| `Body()` | `[]byte` | Тело запроса |
+| `Headers()` | `[][]byte` | Заголовки запроса (пары ключ-значение) |
+| `Method()` | `[]byte` | Имя метода |
+| `GetHeader(key, default)` | `string` | Получить заголовок по ключу |
+| `SetBody([]byte)` | — | Установить тело ответа |
+| `SetCode(uint32)` | — | Установить код ответа |
+| `SetHeader(key, value)` | — | Установить заголовок ответа |
+| `SetHeaders([][]byte)` | — | Установить все заголовки ответа |
+| `Locals()` | `Locals` | Локальное хранилище запроса |
+
+**`internal.EventCtx`** (обработчик событий): `Body()`, `Headers()`, `Method()`, `GetHeader()`, `Locals()` — только чтение, ответ не отправляется.
+
+### Клиент
+
+```go
+func NewClient(ctx context.Context, addr string, tls *tls.Config, connsCount int) (Client, error)
+```
+
+| Метод | Возвращает | Описание |
+|--------|-----------|----------|
+| `NewRequest()` | `ReqCtx` | Получить контекст запроса из пула |
+| `SendRequest(ctx, reqCtx)` | `(RespCtx, error)` | Отправить RPC и ждать ответ |
+| `SendEvent(ctx, reqCtx)` | `error` | Отправить событие (fire-and-forget) |
+| `ReleaseResponse(RespCtx)` | — | Вернуть ответ в пул |
+
+**`ReqCtx`:** `Body()`, `SetBody()`, `Headers()`, `SetHeaders()`, `Method()`, `SetMethod()`, `RequestId()`, `Locals()`.
+
+**`RespCtx`:** `Body()`, `Headers()`, `Code()`, `RequestId()`.
 
 ---
 

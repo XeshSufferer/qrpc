@@ -5,7 +5,7 @@
 [![Go Version](https://img.shields.io/badge/Go-1.26.2-blue.svg)](go.mod)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 
-**qrpc** — a high-performance RPC framework built on QUIC (HTTP/3 transport). It uses protocol buffers with vtprotobuf acceleration, lock-free stream multiplexing, and aggressive object pooling to deliver low-latency, high-throughput communication.
+**qrpc** — a high-performance RPC framework built on QUIC (HTTP/3 transport). It uses protocol buffers with vtprotobuf acceleration, lock-free stream multiplexing, and aggressive object pooling to deliver low-latency, high-throughput communication. Supports both request-response RPC and one-way event messaging.
 
 ---
 
@@ -16,7 +16,8 @@
 - **Stream Multiplexing** — N pre-opened QUIC streams per connection, lock-free atomic round-robin balancer.
 - **Object Pooling** — `sync.Pool` for encoder buffers, request/response objects, and response channels — minimizes GC pressure.
 - **Sharded Concurrent Map** — 256-shard map for O(1) request-ID-to-channel dispatch.
-- **Simple API** — `NewServer` → `AddHandler`, `NewClient` → `SendRequest`.
+- **Event Messaging** — one-way event delivery alongside request-response RPC.
+- **Simple API** — `NewServer` → `AddHandler` / `AddEventHandler`, `NewClient` → `NewRequest` → `SendRequest` / `SendEvent`.
 
 ---
 
@@ -31,7 +32,7 @@ import (
   "crypto/tls"
   "log"
   "github.com/XeshSufferer/qrpc"
-  "github.com/XeshSufferer/qrpc/protos/pb/gen"
+  "github.com/XeshSufferer/qrpc/internal"
 )
 
 func main() {
@@ -40,9 +41,9 @@ func main() {
   if err != nil {
     log.Fatal(err)
   }
-  server.AddHandler("echo", func(req *gen.Request, resp *gen.Response) {
-    resp.Body = req.Body
-    resp.Code = 0
+  server.AddHandler("echo", func(c internal.Ctx) {
+    c.SetBody(c.Body())
+    c.SetCode(0)
   })
   select {}
 }
@@ -66,15 +67,33 @@ func main() {
   if err != nil {
     log.Fatal(err)
   }
-  resp, err := client.SendRequest(
-    context.Background(),
-    []byte("echo"), []byte("hello qrpc"), nil,
-  )
+
+  req := client.NewRequest()
+  req.SetMethod([]byte("echo"))
+  req.SetBody([]byte("hello qrpc"))
+
+  resp, err := client.SendRequest(context.Background(), req)
   if err != nil {
     log.Fatal(err)
   }
   log.Printf("Response: %s", resp.Body)
+  client.ReleaseResponse(resp)
 }
+```
+
+### Events (one-way messaging)
+
+```go
+// Server
+server.AddEventHandler("notify", func(c internal.EventCtx) {
+  log.Printf("event %s: %s", c.Method(), c.Body())
+})
+
+// Client
+req := client.NewRequest()
+req.SetMethod([]byte("notify"))
+req.SetBody([]byte("hello"))
+err := client.SendEvent(context.Background(), req)
 ```
 
 ---
@@ -88,9 +107,12 @@ func main() {
 │  4 bytes: payload length (big-endian uint32) │
 ├─────────────────────────────────────────────┤
 │  1 byte:  flag                               │
-│           REQUEST  = 1                       │
-│           RESPONSE = 2                       │
-│           EVENT    = 3                       │
+│           REQUEST       = 1                  │
+│           RESPONSE      = 2                  │
+│           EVENT         = 3                  │
+│           REQUEST_ZSTD  = 4                  │
+│           RESPONSE_ZSTD = 5                  │
+│           EVENT_ZSTD    = 6                  │
 ├─────────────────────────────────────────────┤
 │  N bytes: protobuf Request / Response        │
 └─────────────────────────────────────────────┘
@@ -118,7 +140,9 @@ message Response {
 }
 ```
 
-Requests are matched to responses via a random `uint64` `request_id`.
+Requests are matched to responses via a random `uint64` `request_id`. Events use `request_id = 0` and do not generate a response.
+
+Payloads larger than 16 KB are automatically compressed with **zstd** (flags 4–6).
 
 ---
 
@@ -143,9 +167,57 @@ Requests are matched to responses via a random `uint64` `request_id`.
 └───────────────┘                     └───────────────┘
 ```
 
-**Client flow.** On `NewClient`, the multiplexer opens N QUIC streams (default 32) and starts a read-cycle goroutine per stream. `SendRequest` assigns a random `request_id`, stores a `chan *Response` in the sharded map, encodes the request, and writes it to a stream obtained from the round-robin balancer. The read-cycle goroutine decodes incoming frames, looks up `request_id`, and dispatches the response to the waiting channel.
+**Client flow.** On `NewClient`, the multiplexer opens N QUIC streams (default 32) per connection and starts a read-cycle goroutine per stream. `NewRequest` obtains a pooled `ReqCtx` wrapping a protobuf `Request`. `SendRequest` assigns a random `request_id`, stores a `chan *Response` in the sharded map, encodes the request via the encoder, and writes it to a stream obtained from the round-robin balancer. The read-cycle goroutine decodes incoming frames, looks up `request_id` in the sharded map, and dispatches the response to the waiting channel. `SendEvent` writes a one-way frame with `request_id = 0` and no response is expected.
 
-**Server flow.** `NewServer` starts a QUIC listener. Each accepted connection gets a goroutine that accepts streams. Each stream runs a read cycle that decodes frames, dispatches to the registered handler, encodes the response, and writes it back.
+**Server flow.** `NewServer` starts a QUIC listener. Each accepted connection gets a goroutine that accepts streams. Each stream runs a read cycle that decodes frames. Request frames (flag 1/4) dispatch to the registered handler via `internal.Ctx`; the handler sets the response and the server encodes and writes it back. Event frames (flag 3/6) dispatch to the event handler via `internal.EventCtx`; no response is sent.
+
+---
+
+## API Reference
+
+### Server
+
+```go
+func NewServer(addr string, tls *tls.Config) (QRpcServer, error)
+```
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `AddHandler` | `(method string, handler func(internal.Ctx))` | Register an RPC handler |
+| `AddEventHandler` | `(method string, handler func(internal.EventCtx))` | Register an event handler |
+
+**`internal.Ctx`** (RPC handler):
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `Body()` | `[]byte` | Request body |
+| `Headers()` | `[][]byte` | Request headers (key-value pairs) |
+| `Method()` | `[]byte` | Request method name |
+| `GetHeader(key, default)` | `string` | Get a header value by key |
+| `SetBody([]byte)` | — | Set response body |
+| `SetCode(uint32)` | — | Set response status code |
+| `SetHeader(key, value)` | — | Set a response header |
+| `SetHeaders([][]byte)` | — | Set all response headers |
+| `Locals()` | `Locals` | Per-request local storage |
+
+**`internal.EventCtx`** (event handler): `Body()`, `Headers()`, `Method()`, `GetHeader()`, `Locals()` — read-only, no response.
+
+### Client
+
+```go
+func NewClient(ctx context.Context, addr string, tls *tls.Config, connsCount int) (Client, error)
+```
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `NewRequest()` | `ReqCtx` | Get a pooled request context |
+| `SendRequest(ctx, reqCtx)` | `(RespCtx, error)` | Send RPC and wait for response |
+| `SendEvent(ctx, reqCtx)` | `error` | Fire-and-forget event |
+| `ReleaseResponse(RespCtx)` | — | Return response to pool |
+
+**`ReqCtx`:** `Body()`, `SetBody()`, `Headers()`, `SetHeaders()`, `Method()`, `SetMethod()`, `RequestId()`, `Locals()`.
+
+**`RespCtx`:** `Body()`, `Headers()`, `Code()`, `RequestId()`.
 
 ---
 
