@@ -45,6 +45,10 @@ func NewCtx(req *gen.Request, resp *gen.Response) *CtxImpl {
 	ctx.req = req
 	ctx.resp = resp
 
+	if ctx.locals == nil {
+		ctx.locals = NewLocals()
+	}
+
 	return ctx
 }
 
@@ -136,6 +140,11 @@ var reqCtxPool = sync.Pool{
 func NewReqCtx(req *gen.Request) *ReqCtxImpl {
 	ctx := reqCtxPool.Get().(*ReqCtxImpl)
 	ctx.req = req
+
+	if ctx.locals == nil {
+		ctx.locals = NewLocals()
+	}
+
 	return ctx
 }
 
