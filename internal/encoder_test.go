@@ -12,7 +12,7 @@ func benchmarkEncodeRequest(b *testing.B, bodySize int) {
 		RequestId: 1,
 		Method:    []byte("bench.method"),
 		Body:      make([]byte, bodySize),
-		Headers:   []byte("trace-id:abc"),
+		Headers:   [][]byte{[]byte("trace-id"), []byte("abc")},
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -34,7 +34,7 @@ func benchmarkEncodeResponse(b *testing.B, bodySize int) {
 		RequestId: 1,
 		Code:      200,
 		Body:      make([]byte, bodySize),
-		Headers:   []byte("trace-id:abc"),
+		Headers:   [][]byte{[]byte("trace-id"), []byte("abc")},
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -56,7 +56,7 @@ func BenchmarkEncodeRequest_Parallel(b *testing.B) {
 		RequestId: 1,
 		Method:    []byte("bench.method"),
 		Body:      make([]byte, 256),
-		Headers:   []byte("trace-id:abc"),
+		Headers:   [][]byte{[]byte("trace-id"), []byte("abc")},
 	}
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -76,7 +76,7 @@ func BenchmarkEncodeResponse_Parallel(b *testing.B) {
 		RequestId: 1,
 		Code:      200,
 		Body:      make([]byte, 256),
-		Headers:   []byte("trace-id:abc"),
+		Headers:   [][]byte{[]byte("trace-id"), []byte("abc")},
 	}
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {

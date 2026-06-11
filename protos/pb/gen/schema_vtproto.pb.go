@@ -68,11 +68,13 @@ func (m *Request) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		dAtA[i] = 0x12
 	}
 	if len(m.Headers) > 0 {
-		i -= len(m.Headers)
-		copy(dAtA[i:], m.Headers)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Headers)))
-		i--
-		dAtA[i] = 0xa
+		for iNdEx := len(m.Headers) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.Headers[iNdEx])
+			copy(dAtA[i:], m.Headers[iNdEx])
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Headers[iNdEx])))
+			i--
+			dAtA[i] = 0xa
+		}
 	}
 	return len(dAtA) - i, nil
 }
@@ -132,11 +134,13 @@ func (m *Response) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		dAtA[i] = 0x12
 	}
 	if len(m.Headers) > 0 {
-		i -= len(m.Headers)
-		copy(dAtA[i:], m.Headers)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Headers)))
-		i--
-		dAtA[i] = 0xa
+		for iNdEx := len(m.Headers) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.Headers[iNdEx])
+			copy(dAtA[i:], m.Headers[iNdEx])
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Headers[iNdEx])))
+			i--
+			dAtA[i] = 0xa
+		}
 	}
 	return len(dAtA) - i, nil
 }
@@ -147,9 +151,11 @@ func (m *Request) SizeVT() (n int) {
 	}
 	var l int
 	_ = l
-	l = len(m.Headers)
-	if l > 0 {
-		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	if len(m.Headers) > 0 {
+		for _, b := range m.Headers {
+			l = len(b)
+			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+		}
 	}
 	l = len(m.Method)
 	if l > 0 {
@@ -172,9 +178,11 @@ func (m *Response) SizeVT() (n int) {
 	}
 	var l int
 	_ = l
-	l = len(m.Headers)
-	if l > 0 {
-		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	if len(m.Headers) > 0 {
+		for _, b := range m.Headers {
+			l = len(b)
+			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+		}
 	}
 	l = len(m.Method)
 	if l > 0 {
@@ -252,10 +260,8 @@ func (m *Request) UnmarshalVT(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Headers = append(m.Headers[:0], dAtA[iNdEx:postIndex]...)
-			if m.Headers == nil {
-				m.Headers = []byte{}
-			}
+			m.Headers = append(m.Headers, make([]byte, postIndex-iNdEx))
+			copy(m.Headers[len(m.Headers)-1], dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
@@ -424,10 +430,8 @@ func (m *Response) UnmarshalVT(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Headers = append(m.Headers[:0], dAtA[iNdEx:postIndex]...)
-			if m.Headers == nil {
-				m.Headers = []byte{}
-			}
+			m.Headers = append(m.Headers, make([]byte, postIndex-iNdEx))
+			copy(m.Headers[len(m.Headers)-1], dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {

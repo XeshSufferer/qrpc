@@ -4,7 +4,7 @@ option go_package = "pb/gen";
 
 message Request {
   uint64 request_id = 3;
-  bytes headers = 1;
+  repeated bytes headers = 1;
   bytes method = 2;
   bytes body = 4;
 }
@@ -12,7 +12,7 @@ message Request {
 message Response {
   uint64 request_id = 3;
   uint32 code = 5;
-  bytes headers = 1;
+  repeated bytes headers = 1;
   bytes method = 2;
   bytes body = 4;
 }

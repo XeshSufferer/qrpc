@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/XeshSufferer/qrpc"
+	"github.com/XeshSufferer/qrpc/internal"
 	"github.com/XeshSufferer/qrpc/stress_tester/internal/tls"
-	"github.com/XeshSufferer/qrpc/protos/pb/gen"
 )
 
 type BenchServer struct {
@@ -38,28 +38,28 @@ func (s *BenchServer) Start() error {
 
 	s.qrpc = server
 
-	s.qrpc.AddHandler("echo", func(req *gen.Request, resp *gen.Response) {
+	s.qrpc.AddHandler("echo", func(ctx internal.Ctx) {
 		if s.cpuLoad {
 			simulateCPU(100)
 		}
-		resp.Code = 200
-		resp.Body = nil
-		resp.Headers = nil
+		ctx.SetCode(200)
+		ctx.SetBody(nil)
+		ctx.SetHeaders(nil)
 	})
 
-	s.qrpc.AddHandler("upload", func(req *gen.Request, resp *gen.Response) {
+	s.qrpc.AddHandler("upload", func(ctx internal.Ctx) {
 		if s.cpuLoad {
 			simulateCPU(50)
 		}
-		resp.Code = 200
-		resp.Body = nil
-		resp.Headers = nil
+		ctx.SetCode(200)
+		ctx.SetBody(nil)
+		ctx.SetHeaders(nil)
 	})
 
-	s.qrpc.AddHandler("ping", func(req *gen.Request, resp *gen.Response) {
-		resp.Code = 200
-		resp.Body = nil
-		resp.Headers = nil
+	s.qrpc.AddHandler("ping", func(ctx internal.Ctx) {
+		ctx.SetCode(200)
+		ctx.SetBody(nil)
+		ctx.SetHeaders(nil)
 	})
 
 	log.Printf("[server] qRPC server listening on %s (cpu_load=%v)", s.addr, s.cpuLoad)

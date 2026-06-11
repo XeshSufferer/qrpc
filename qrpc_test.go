@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/XeshSufferer/qrpc/protos/pb/gen"
-	"github.com/XeshSufferer/aquic-go"
+	quic "github.com/XeshSufferer/aquic-go"
+	"github.com/XeshSufferer/qrpc/internal"
 )
 
 func TestMain(m *testing.M) {
@@ -70,7 +70,7 @@ func getTestTLSConfig() *tls.Config {
 	return testTLSConfig
 }
 
-func startTestServer(b *testing.B, handler func(*gen.Request, *gen.Response)) (QRpcServer, string) {
+func startTestServer(b *testing.B, handler func(internal.Ctx)) (QRpcServer, string) {
 	b.Helper()
 
 	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
@@ -104,10 +104,10 @@ func startTestServer(b *testing.B, handler func(*gen.Request, *gen.Response)) (Q
 func setupRoundTrip(b *testing.B, bodySize int) Client {
 	b.Helper()
 
-	handler := func(req *gen.Request, resp *gen.Response) {
-		resp.Body = req.Body
-		resp.Code = 200
-		resp.Headers = req.Headers
+	handler := func(c internal.Ctx) {
+		c.SetBody(c.Body())
+		c.SetCode(200)
+		c.SetHeaders(c.Headers())
 	}
 
 	_, addr := startTestServer(b, handler)
@@ -122,20 +122,27 @@ func setupRoundTrip(b *testing.B, bodySize int) Client {
 	return client
 }
 
+func benchSend(client Client, method []byte, body []byte) {
+	req := client.NewRequest()
+	req.SetMethod(method)
+	req.SetBody(body)
+	resp, err := client.SendRequest(context.Background(), req)
+	if err != nil {
+		panic(err)
+	}
+	if resp.Code() != 200 {
+		panic("unexpected status code")
+	}
+	client.ReleaseResponse(resp)
+}
+
 func BenchmarkRoundTrip_16B(b *testing.B) {
 	client := setupRoundTrip(b, 16)
 	method := []byte("echo")
 	body := make([]byte, 16)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		resp, err := client.SendRequest(context.Background(), method, body, nil)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if resp.Code != 200 {
-			b.Fatal("unexpected status code")
-		}
-		client.ReleaseResponse(resp)
+		benchSend(client, method, body)
 	}
 }
 
@@ -145,14 +152,7 @@ func BenchmarkRoundTrip_1KB(b *testing.B) {
 	body := make([]byte, 1024)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		resp, err := client.SendRequest(context.Background(), method, body, nil)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if resp.Code != 200 {
-			b.Fatal("unexpected status code")
-		}
-		client.ReleaseResponse(resp)
+		benchSend(client, method, body)
 	}
 }
 
@@ -162,14 +162,7 @@ func BenchmarkRoundTrip_4KB(b *testing.B) {
 	body := make([]byte, 4096)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		resp, err := client.SendRequest(context.Background(), method, body, nil)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if resp.Code != 200 {
-			b.Fatal("unexpected status code")
-		}
-		client.ReleaseResponse(resp)
+		benchSend(client, method, body)
 	}
 }
 
@@ -180,14 +173,7 @@ func BenchmarkRoundTripParallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			resp, err := client.SendRequest(context.Background(), method, body, nil)
-			if err != nil {
-				b.Fatal(err)
-			}
-			if resp.Code != 200 {
-				b.Fatal("unexpected status code")
-			}
-			client.ReleaseResponse(resp)
+			benchSend(client, method, body)
 		}
 	})
 }
@@ -199,14 +185,7 @@ func BenchmarkRoundTrip_1KB_WithStartedServer(b *testing.B) {
 	time.Sleep(time.Millisecond * 500)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		resp, err := client.SendRequest(context.Background(), method, body, nil)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if resp.Code != 200 {
-			b.Fatal("unexpected status code")
-		}
-		client.ReleaseResponse(resp)
+		benchSend(client, method, body)
 	}
 }
 
@@ -217,14 +196,7 @@ func BenchmarkRoundTrip_4KB_WithStartedServer(b *testing.B) {
 	time.Sleep(time.Millisecond * 500)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		resp, err := client.SendRequest(context.Background(), method, body, nil)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if resp.Code != 200 {
-			b.Fatal("unexpected status code")
-		}
-		client.ReleaseResponse(resp)
+		benchSend(client, method, body)
 	}
 }
 
@@ -236,13 +208,6 @@ func BenchmarkRoundTrip_16KB_WithStartedServer(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		resp, err := client.SendRequest(context.Background(), method, body, nil)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if resp.Code != 200 {
-			b.Fatal("unexpected status code")
-		}
-		client.ReleaseResponse(resp)
+		benchSend(client, method, body)
 	}
 }

@@ -13,17 +13,17 @@ import (
 	"time"
 
 	"github.com/XeshSufferer/qrpc"
+	"github.com/XeshSufferer/qrpc/internal"
 	"github.com/XeshSufferer/qrpc/stress_tester/internal/config"
 	"github.com/XeshSufferer/qrpc/stress_tester/internal/grpc"
 	"github.com/XeshSufferer/qrpc/stress_tester/internal/metrics"
 	itls "github.com/XeshSufferer/qrpc/stress_tester/internal/tls"
-	"github.com/XeshSufferer/qrpc/protos/pb/gen"
 )
 
 var errClientInitFailed = errors.New("client initialization failed after retries")
 
 type RPCClient interface {
-	SendRequest(ctx context.Context, method []byte, body []byte, headers []byte) (*gen.Response, error)
+	SendRequest(ctx context.Context, method []byte, body []byte, headers [][]byte) (internal.RespCtx, error)
 	Close() error
 }
 
@@ -31,8 +31,12 @@ type qrpcClientWrapper struct {
 	client qrpc.Client
 }
 
-func (w *qrpcClientWrapper) SendRequest(ctx context.Context, method []byte, body []byte, headers []byte) (*gen.Response, error) {
-	return w.client.SendRequest(ctx, method, body, headers)
+func (w *qrpcClientWrapper) SendRequest(ctx context.Context, method []byte, body []byte, headers [][]byte) (internal.RespCtx, error) {
+	req := w.client.NewRequest()
+	req.SetMethod(method)
+	req.SetBody(body)
+	req.SetHeaders(headers)
+	return w.client.SendRequest(ctx, req)
 }
 
 func (w *qrpcClientWrapper) Close() error {
@@ -231,12 +235,12 @@ func (lg *LoadGenerator) workerLoop(ctx context.Context, id int, client RPCClien
 			continue
 		}
 
-		if resp.Code != 200 {
+		if resp.Code() != 200 {
 			lg.collector.Record(metrics.Sample{
 				Start:       start,
 				Duration:    latency,
 				Success:     false,
-				Error:       fmt.Sprintf("unexpected code %d", resp.Code),
+				Error:       fmt.Sprintf("unexpected code %d", resp.Code()),
 				PayloadSize: len(payload),
 				WorkerID:    id,
 			})

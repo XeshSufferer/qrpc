@@ -8,19 +8,18 @@ import (
 	"sync/atomic"
 	"time"
 
+	quic "github.com/XeshSufferer/aquic-go"
 	"github.com/XeshSufferer/qrpc/internal"
 	"github.com/XeshSufferer/qrpc/protos/pb/gen"
 	qrpc_quic "github.com/XeshSufferer/qrpc/transport/quic"
 	"github.com/XeshSufferer/qrpc/transport/quic/client"
-	"github.com/XeshSufferer/aquic-go"
 )
 
 type Client interface {
-	SendRequest(c context.Context, method, body, headers []byte) (*gen.Response, error)
-	SendRawRequest(c context.Context, req *gen.Request) (*gen.Response, error)
-	ReleaseResponse(resp *gen.Response)
-	SendEvent(c context.Context, method, body, headers []byte) error
-	SendRawEvent(c context.Context, req *gen.Request) error
+	NewRequest() internal.ReqCtx
+	SendRequest(ctx context.Context, reqCtx internal.ReqCtx) (internal.RespCtx, error)
+	ReleaseResponse(respCtx internal.RespCtx)
+	SendEvent(ctx context.Context, reqCtx internal.ReqCtx) error
 }
 
 type ClientImpl struct {
@@ -44,10 +43,10 @@ func NewClient(ctx context.Context, addr string, tls *tls.Config, connsCount int
 		InitialConnectionReceiveWindow: 16 << 20, // 16 MB
 		MaxConnectionReceiveWindow:     64 << 20, // 64 MB
 
-		MaxIncomingStreams:     10000,
-		HandshakeIdleTimeout:   30 * time.Second,
+		MaxIncomingStreams:      10000,
+		HandshakeIdleTimeout:    30 * time.Second,
 		DisablePathMTUDiscovery: true,
-		InitialPacketSize:      1452,
+		InitialPacketSize:       1452,
 	}
 
 	if connsCount < 1 {
@@ -96,6 +95,10 @@ var TimeoutDuration = time.Second * 30
 func (clientimpl *ClientImpl) getMultiplexor() client.Multiplexer {
 	idx := clientimpl.connCounter.Add(1) - 1
 	return clientimpl.multiplexors[idx%uint32(len(clientimpl.multiplexors))]
+}
+
+func (clientimpl *ClientImpl) NewRequest() internal.ReqCtx {
+	return internal.NewReqCtx(client.GetRequest())
 }
 
 func (clientimpl *ClientImpl) sendRequestInternal(req *gen.Request) (chan *gen.Response, error) {
@@ -154,40 +157,29 @@ func (clientimpl *ClientImpl) waitResponse(
 
 func (clientimpl *ClientImpl) SendRequest(
 	ctx context.Context,
-	method,
-	body,
-	headers []byte,
-) (*gen.Response, error) {
+	reqCtx internal.ReqCtx,
+) (internal.RespCtx, error) {
 
-	r := client.GetRequest()
+	impl := reqCtx.(*internal.ReqCtxImpl)
+	r := impl.Req()
+	if r.RequestId == 0 {
+		r.RequestId = rand.Uint64()
+	}
 
-	r.Method = method
-	r.Body = body
-	r.Headers = headers
-	r.RequestId = rand.Uint64()
+	id := r.RequestId
 
 	ch, err := clientimpl.sendRequestInternal(r)
+	internal.ReleaseReqCtx(impl)
 	if err != nil {
 		return nil, err
 	}
 
-	return clientimpl.waitResponse(ctx, ch, r.RequestId)
-}
-
-func (clientimpl *ClientImpl) SendRawRequest(
-	c context.Context,
-	req *gen.Request,
-) (*gen.Response, error) {
-
-	ctx, cancel := context.WithTimeout(c, TimeoutDuration)
-	defer cancel()
-
-	ch, err := clientimpl.sendRequestInternal(req)
+	resp, err := clientimpl.waitResponse(ctx, ch, id)
 	if err != nil {
 		return nil, err
 	}
 
-	return clientimpl.waitResponse(ctx, ch, req.RequestId)
+	return internal.NewRespCtx(resp), nil
 }
 
 func (clientimpl *ClientImpl) sendEventInternal(req *gen.Request) error {
@@ -219,26 +211,19 @@ func (clientimpl *ClientImpl) sendEventInternal(req *gen.Request) error {
 
 func (clientimpl *ClientImpl) SendEvent(
 	ctx context.Context,
-	method, body, headers []byte,
+	reqCtx internal.ReqCtx,
 ) error {
 
-	r := client.GetRequest()
-	r.Method = method
-	r.Body = body
-	r.Headers = headers
-
-	return clientimpl.sendEventInternal(r)
+	impl := reqCtx.(*internal.ReqCtxImpl)
+	err := clientimpl.sendEventInternal(impl.Req())
+	internal.ReleaseReqCtx(impl)
+	return err
 }
 
-func (clientimpl *ClientImpl) SendRawEvent(
-	c context.Context,
-	req *gen.Request,
-) error {
-	return clientimpl.sendEventInternal(req)
-}
-
-func (c *ClientImpl) ReleaseResponse(resp *gen.Response) {
-	client.ReleaseResponse(resp)
+func (c *ClientImpl) ReleaseResponse(respCtx internal.RespCtx) {
+	impl := respCtx.(*internal.RespCtxImpl)
+	client.ReleaseResponse(impl.Resp())
+	internal.ReleaseRespCtx(impl)
 }
 
 func (c *ClientImpl) getChan() chan *gen.Response {

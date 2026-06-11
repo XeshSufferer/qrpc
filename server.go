@@ -10,24 +10,23 @@ import (
 	"log/slog"
 	"time"
 
+	quic "github.com/XeshSufferer/aquic-go"
 	"github.com/XeshSufferer/qrpc/internal"
-	"github.com/XeshSufferer/qrpc/protos/pb/gen"
 	"github.com/XeshSufferer/qrpc/transport/quic/client"
 	"github.com/XeshSufferer/qrpc/transport/types"
-	"github.com/XeshSufferer/aquic-go"
 )
 
 type QRpcServer interface {
 	startListen()
-	AddHandler(method string, handler func(*gen.Request, *gen.Response))
-	AddEventHandler(method string, handler func(*gen.Request))
+	AddHandler(method string, handler func(internal.Ctx))
+	AddEventHandler(method string, handler func(internal.EventCtx))
 }
 
 type QRPCServerImpl struct {
 	listener      *quic.Listener
 	conns         map[uint32]*quic.Conn
-	handlers      map[string]func(*gen.Request, *gen.Response)
-	eventHandlers map[string]func(*gen.Request)
+	handlers      map[string]func(internal.Ctx)
+	eventHandlers map[string]func(internal.EventCtx)
 	encoder       internal.Encoder
 }
 
@@ -43,10 +42,10 @@ func NewServer(addr string, tls *tls.Config) (QRpcServer, error) {
 		InitialConnectionReceiveWindow: 16 << 20, // 16 MB
 		MaxConnectionReceiveWindow:     64 << 20, // 64 MB
 
-		MaxIncomingStreams:     10000,
-		HandshakeIdleTimeout:   30 * time.Second,
+		MaxIncomingStreams:      10000,
+		HandshakeIdleTimeout:    30 * time.Second,
 		DisablePathMTUDiscovery: true,
-		InitialPacketSize:      1452,
+		InitialPacketSize:       1452,
 	}
 
 	listener, err := quic.ListenAddr(addr, tls, config)
@@ -65,17 +64,17 @@ func newServer(listener *quic.Listener) QRpcServer {
 	return &QRPCServerImpl{
 		listener:      listener,
 		conns:         make(map[uint32]*quic.Conn, 4),
-		handlers:      make(map[string]func(*gen.Request, *gen.Response), 4),
-		eventHandlers: make(map[string]func(*gen.Request), 4),
+		handlers:      make(map[string]func(internal.Ctx), 4),
+		eventHandlers: make(map[string]func(internal.EventCtx), 4),
 		encoder:       internal.NewEncoder(),
 	}
 }
 
-func (s *QRPCServerImpl) AddHandler(method string, handler func(*gen.Request, *gen.Response)) {
+func (s *QRPCServerImpl) AddHandler(method string, handler func(internal.Ctx)) {
 	s.handlers[method] = handler
 }
 
-func (s *QRPCServerImpl) AddEventHandler(method string, handler func(*gen.Request)) {
+func (s *QRPCServerImpl) AddEventHandler(method string, handler func(internal.EventCtx)) {
 	s.eventHandlers[method] = handler
 }
 
@@ -191,7 +190,9 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 
 			resp.RequestId = req.RequestId
 
-			handler(req, resp)
+			ctx := internal.NewCtx(req, resp)
+			handler(ctx)
+			internal.ReleaseCtx(ctx)
 
 			client.ReleaseRequest(req)
 
@@ -234,7 +235,9 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 				continue
 			}
 
-			handler(req)
+			ctx := internal.NewCtx(req, nil)
+			handler(ctx)
+			internal.ReleaseCtx(ctx)
 			client.ReleaseRequest(req)
 		}
 	}
