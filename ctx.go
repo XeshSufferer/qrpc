@@ -133,11 +133,11 @@ func (c *CtxImpl) Method() []byte {
 
 func (c *CtxImpl) GetHeader(key, defaultValue string) string {
 
-	bytesKey := StringToBytes(key)
+	bytesKey := stringToBytes(key)
 
 	for i := 0; i < len(c.req.Headers); i += 2 {
 		if bytes.Equal(c.req.Headers[i], bytesKey) {
-			return BytesToString(c.req.Headers[i+1])
+			return bytesToString(c.req.Headers[i+1])
 		}
 	}
 
@@ -159,7 +159,7 @@ func (c *CtxImpl) SetCode(code uint32) {
 }
 
 func (c *CtxImpl) SetHeader(key, value string) {
-	c.resp.Headers = append(c.resp.Headers, StringToBytes(key), StringToBytes(value))
+	c.resp.Headers = append(c.resp.Headers, stringToBytes(key), stringToBytes(value))
 }
 
 type Request interface {
@@ -285,14 +285,14 @@ func (c *ResponseImpl) Resp() *gen.Response {
 	return c.resp
 }
 
-func BytesToString(b []byte) string {
+func bytesToString(b []byte) string {
 	if len(b) == 0 {
 		return ""
 	}
 	return unsafe.String(&b[0], len(b))
 }
 
-func StringToBytes(s string) []byte {
+func stringToBytes(s string) []byte {
 	if len(s) == 0 {
 		return nil
 	}
