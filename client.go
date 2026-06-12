@@ -156,7 +156,8 @@ func (c *ClientImpl) sendRequestInternal(req *gen.Request) (chan *gen.Response, 
 		return nil, err
 	}
 
-	_, err = stream.Write(buf.Bytes())
+	batcher := mux.(*client.MultiplexerImpl).GetBatcher(stream)
+	err = batcher.Write(buf.Bytes())
 	buf.Release()
 
 	if err != nil {
@@ -245,7 +246,8 @@ func (c *ClientImpl) sendEventInternal(req *gen.Request) error {
 		return err
 	}
 
-	_, err = stream.Write(buf.Bytes())
+	batcher := mux.(*client.MultiplexerImpl).GetBatcher(stream)
+	err = batcher.Write(buf.Bytes())
 	buf.Release()
 
 	return err

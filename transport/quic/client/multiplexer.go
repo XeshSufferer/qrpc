@@ -24,6 +24,7 @@ type MultiplexerImpl struct {
 	balancer qrpc_quic.Balancer
 	conn     *quic.Conn
 	chansMap *internal.ShardedMap
+	batchers sync.Map
 }
 
 const StreamOpenDelay = 10 // ms
@@ -69,11 +70,22 @@ func (m *MultiplexerImpl) start(c uint16) {
 		}
 
 		m.balancer.AddStream(s)
+		m.batchers.Store(s, NewBatcher(s))
 
 		go m.readCycle(s)
 
 		time.Sleep(time.Millisecond * StreamOpenDelay)
 	}
+}
+
+func (m *MultiplexerImpl) GetBatcher(s *quic.Stream) *Batcher {
+	v, ok := m.batchers.Load(s)
+	if !ok {
+		b := NewBatcher(s)
+		m.batchers.Store(s, b)
+		return b
+	}
+	return v.(*Batcher)
 }
 
 func (m *MultiplexerImpl) GetStream() (*quic.Stream, error) {
@@ -91,12 +103,18 @@ func (m *MultiplexerImpl) Close() {
 }
 
 func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
+	defer m.batchers.Delete(s)
+
 	headerLengthBuff := make([]byte, 4)
 	flagBuff := make([]byte, 1)
 
 	var reqBuff []byte
 
 	for {
+		if err := m.GetBatcher(s).Flush(); err != nil {
+			slog.Error("error by flush batch buffer", "err", err)
+			return
+		}
 		_, err := io.ReadFull(s, headerLengthBuff)
 		if err != nil {
 			if IsTimeoutErr(err) {
