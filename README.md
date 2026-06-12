@@ -32,7 +32,6 @@ import (
   "crypto/tls"
   "log"
   "github.com/XeshSufferer/qrpc"
-  "github.com/XeshSufferer/qrpc/internal"
 )
 
 func main() {
@@ -41,7 +40,7 @@ func main() {
   if err != nil {
     log.Fatal(err)
   }
-  server.AddHandler("echo", func(c internal.Ctx) {
+  server.AddHandler("echo", func(c qrpc.Ctx) {
     c.SetBody(c.Body())
     c.SetCode(0)
   })
@@ -85,7 +84,7 @@ func main() {
 
 ```go
 // Server
-server.AddEventHandler("notify", func(c internal.EventCtx) {
+server.AddEventHandler("notify", func(c qrpc.EventCtx) {
   log.Printf("event %s: %s", c.Method(), c.Body())
 })
 
@@ -169,7 +168,7 @@ Payloads larger than 16 KB are automatically compressed with **zstd** (flags 4�
 
 **Client flow.** On `NewClient`, the multiplexer opens N QUIC streams (default 32) per connection and starts a read-cycle goroutine per stream. `NewRequest` obtains a pooled `ReqCtx` wrapping a protobuf `Request`. `SendRequest` assigns a random `request_id`, stores a `chan *Response` in the sharded map, encodes the request via the encoder, and writes it to a stream obtained from the round-robin balancer. The read-cycle goroutine decodes incoming frames, looks up `request_id` in the sharded map, and dispatches the response to the waiting channel. `SendEvent` writes a one-way frame with `request_id = 0` and no response is expected.
 
-**Server flow.** `NewServer` starts a QUIC listener. Each accepted connection gets a goroutine that accepts streams. Each stream runs a read cycle that decodes frames. Request frames (flag 1/4) dispatch to the registered handler via `internal.Ctx`; the handler sets the response and the server encodes and writes it back. Event frames (flag 3/6) dispatch to the event handler via `internal.EventCtx`; no response is sent.
+**Server flow.** `NewServer` starts a QUIC listener. Each accepted connection gets a goroutine that accepts streams. Each stream runs a read cycle that decodes frames. Request frames (flag 1/4) dispatch to the registered handler via `qrpc.Ctx`; the handler sets the response and the server encodes and writes it back. Event frames (flag 3/6) dispatch to the event handler via `qrpc.EventCtx`; no response is sent.
 
 ---
 
@@ -183,10 +182,10 @@ func NewServer(addr string, tls *tls.Config) (QRpcServer, error)
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `AddHandler` | `(method string, handler func(internal.Ctx))` | Register an RPC handler |
-| `AddEventHandler` | `(method string, handler func(internal.EventCtx))` | Register an event handler |
+| `AddHandler` | `(method string, handler func(qrpc.Ctx))` | Register an RPC handler |
+| `AddEventHandler` | `(method string, handler func(qrpc.EventCtx))` | Register an event handler |
 
-**`internal.Ctx`** (RPC handler):
+**`qrpc.Ctx`** (RPC handler):
 
 | Method | Returns | Description |
 |--------|---------|-------------|
@@ -200,7 +199,7 @@ func NewServer(addr string, tls *tls.Config) (QRpcServer, error)
 | `SetHeaders([][]byte)` | — | Set all response headers |
 | `Locals()` | `Locals` | Per-request local storage |
 
-**`internal.EventCtx`** (event handler): `Body()`, `Headers()`, `Method()`, `GetHeader()`, `Locals()` — read-only, no response.
+**`qrpc.EventCtx`** (event handler): `Body()`, `Headers()`, `Method()`, `GetHeader()`, `Locals()` — read-only, no response.
 
 ### Client
 

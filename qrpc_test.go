@@ -17,7 +17,6 @@ import (
 	"time"
 
 	quic "github.com/XeshSufferer/aquic-go"
-	"github.com/XeshSufferer/qrpc/internal"
 )
 
 func TestMain(m *testing.M) {
@@ -70,7 +69,7 @@ func getTestTLSConfig() *tls.Config {
 	return testTLSConfig
 }
 
-func startTestServer(b *testing.B, handler func(internal.Ctx)) (QRpcServer, string) {
+func startTestServer(b *testing.B, handler func(Ctx)) (QRpcServer, string) {
 	b.Helper()
 
 	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
@@ -104,7 +103,7 @@ func startTestServer(b *testing.B, handler func(internal.Ctx)) (QRpcServer, stri
 func setupRoundTrip(b *testing.B, bodySize int) Client {
 	b.Helper()
 
-	handler := func(c internal.Ctx) {
+	handler := func(c Ctx) {
 		c.SetBody(c.Body())
 		c.SetCode(200)
 		c.SetHeaders(c.Headers())

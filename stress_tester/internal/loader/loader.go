@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/XeshSufferer/qrpc"
-	"github.com/XeshSufferer/qrpc/internal"
 	"github.com/XeshSufferer/qrpc/stress_tester/internal/config"
 	"github.com/XeshSufferer/qrpc/stress_tester/internal/grpc"
 	"github.com/XeshSufferer/qrpc/stress_tester/internal/metrics"
@@ -23,7 +22,7 @@ import (
 var errClientInitFailed = errors.New("client initialization failed after retries")
 
 type RPCClient interface {
-	SendRequest(ctx context.Context, method []byte, body []byte, headers [][]byte) (internal.RespCtx, error)
+	SendRequest(ctx context.Context, method []byte, body []byte, headers [][]byte) (qrpc.RespCtx, error)
 	Close() error
 }
 
@@ -31,7 +30,7 @@ type qrpcClientWrapper struct {
 	client qrpc.Client
 }
 
-func (w *qrpcClientWrapper) SendRequest(ctx context.Context, method []byte, body []byte, headers [][]byte) (internal.RespCtx, error) {
+func (w *qrpcClientWrapper) SendRequest(ctx context.Context, method []byte, body []byte, headers [][]byte) (qrpc.RespCtx, error) {
 	req := w.client.NewRequest()
 	req.SetMethod(method)
 	req.SetBody(body)

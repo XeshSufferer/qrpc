@@ -16,17 +16,20 @@ import (
 	"github.com/XeshSufferer/qrpc/transport/types"
 )
 
+var _ Ctx = (*CtxImpl)(nil)
+var _ EventCtx = (*CtxImpl)(nil)
+
 type QRpcServer interface {
 	startListen()
-	AddHandler(method string, handler func(internal.Ctx))
-	AddEventHandler(method string, handler func(internal.EventCtx))
+	AddHandler(method string, handler func(Ctx))
+	AddEventHandler(method string, handler func(EventCtx))
 }
 
 type QRPCServerImpl struct {
 	listener      *quic.Listener
 	conns         map[uint32]*quic.Conn
-	handlers      map[string]func(internal.Ctx)
-	eventHandlers map[string]func(internal.EventCtx)
+	handlers      map[string]func(Ctx)
+	eventHandlers map[string]func(EventCtx)
 	encoder       internal.Encoder
 }
 
@@ -64,17 +67,17 @@ func newServer(listener *quic.Listener) QRpcServer {
 	return &QRPCServerImpl{
 		listener:      listener,
 		conns:         make(map[uint32]*quic.Conn, 4),
-		handlers:      make(map[string]func(internal.Ctx), 4),
-		eventHandlers: make(map[string]func(internal.EventCtx), 4),
+		handlers:      make(map[string]func(Ctx), 4),
+		eventHandlers: make(map[string]func(EventCtx), 4),
 		encoder:       internal.NewEncoder(),
 	}
 }
 
-func (s *QRPCServerImpl) AddHandler(method string, handler func(internal.Ctx)) {
+func (s *QRPCServerImpl) AddHandler(method string, handler func(Ctx)) {
 	s.handlers[method] = handler
 }
 
-func (s *QRPCServerImpl) AddEventHandler(method string, handler func(internal.EventCtx)) {
+func (s *QRPCServerImpl) AddEventHandler(method string, handler func(EventCtx)) {
 	s.eventHandlers[method] = handler
 }
 
@@ -190,9 +193,9 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 
 			resp.RequestId = req.RequestId
 
-			ctx := internal.NewCtx(req, resp)
+			ctx := NewCtx(req, resp)
 			handler(ctx)
-			internal.ReleaseCtx(ctx)
+			ReleaseCtx(ctx)
 
 			client.ReleaseRequest(req)
 
@@ -235,9 +238,9 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 				continue
 			}
 
-			ctx := internal.NewCtx(req, nil)
+			ctx := NewCtx(req, nil)
 			handler(ctx)
-			internal.ReleaseCtx(ctx)
+			ReleaseCtx(ctx)
 			client.ReleaseRequest(req)
 		}
 	}

@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/XeshSufferer/qrpc"
-	"github.com/XeshSufferer/qrpc/internal"
 	"github.com/XeshSufferer/qrpc/stress_tester/internal/tls"
 )
 
@@ -38,7 +37,7 @@ func (s *BenchServer) Start() error {
 
 	s.qrpc = server
 
-	s.qrpc.AddHandler("echo", func(ctx internal.Ctx) {
+	s.qrpc.AddHandler("echo", func(ctx qrpc.Ctx) {
 		if s.cpuLoad {
 			simulateCPU(100)
 		}
@@ -47,7 +46,7 @@ func (s *BenchServer) Start() error {
 		ctx.SetHeaders(nil)
 	})
 
-	s.qrpc.AddHandler("upload", func(ctx internal.Ctx) {
+	s.qrpc.AddHandler("upload", func(ctx qrpc.Ctx) {
 		if s.cpuLoad {
 			simulateCPU(50)
 		}
@@ -56,7 +55,7 @@ func (s *BenchServer) Start() error {
 		ctx.SetHeaders(nil)
 	})
 
-	s.qrpc.AddHandler("ping", func(ctx internal.Ctx) {
+	s.qrpc.AddHandler("ping", func(ctx qrpc.Ctx) {
 		ctx.SetCode(200)
 		ctx.SetBody(nil)
 		ctx.SetHeaders(nil)

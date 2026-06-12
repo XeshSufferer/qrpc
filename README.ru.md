@@ -32,7 +32,6 @@ import (
   "crypto/tls"
   "log"
   "github.com/XeshSufferer/qrpc"
-  "github.com/XeshSufferer/qrpc/internal"
 )
 
 func main() {
@@ -41,7 +40,7 @@ func main() {
   if err != nil {
     log.Fatal(err)
   }
-  server.AddHandler("echo", func(c internal.Ctx) {
+  server.AddHandler("echo", func(c qrpc.Ctx) {
     c.SetBody(c.Body())
     c.SetCode(0)
   })
@@ -85,7 +84,7 @@ func main() {
 
 ```go
 // Сервер
-server.AddEventHandler("notify", func(c internal.EventCtx) {
+server.AddEventHandler("notify", func(c qrpc.EventCtx) {
   log.Printf("событие %s: %s", c.Method(), c.Body())
 })
 
@@ -169,7 +168,7 @@ Payload более 16 КБ автоматически сжимается **zstd*
 
 **Клиент.** При `NewClient` мультиплексор открывает N QUIC-стримов (по умолчанию 32) на соединение и запускает по горутине чтения на стрим. `NewRequest` получает из пула `ReqCtx`, обёртку над protobuf `Request`. `SendRequest` генерирует случайный `request_id`, сохраняет `chan *Response` в sharded map, кодирует запрос через encoder и отправляет на стрим, полученный от round-robin балансировщика. Горутина чтения декодирует входящие фреймы, находит `request_id` в карте и отправляет ответ в канал. `SendEvent` отправляет однонаправленный фрейм с `request_id = 0` без ожидания ответа.
 
-**Сервер.** `NewServer` запускает QUIC-слушатель. Каждое принятое соединение получает горутину, принимающую стримы. Каждый стрим выполняет цикл чтения: декодирует фрейм. RPC-запросы (флаг 1/4) диспетчеризуются к хендлеру через `internal.Ctx`; хендлер устанавливает ответ, сервер кодирует и отправляет его обратно. События (флаг 3/6) диспетчеризуются к обработчику событий через `internal.EventCtx`; ответ не отправляется.
+**Сервер.** `NewServer` запускает QUIC-слушатель. Каждое принятое соединение получает горутину, принимающую стримы. Каждый стрим выполняет цикл чтения: декодирует фрейм. RPC-запросы (флаг 1/4) диспетчеризуются к хендлеру через `qrpc.Ctx`; хендлер устанавливает ответ, сервер кодирует и отправляет его обратно. События (флаг 3/6) диспетчеризуются к обработчику событий через `qrpc.EventCtx`; ответ не отправляется.
 
 ---
 
@@ -183,10 +182,10 @@ func NewServer(addr string, tls *tls.Config) (QRpcServer, error)
 
 | Метод | Сигнатура | Описание |
 |--------|-----------|----------|
-| `AddHandler` | `(method string, handler func(internal.Ctx))` | Регистрация RPC-обработчика |
-| `AddEventHandler` | `(method string, handler func(internal.EventCtx))` | Регистрация обработчика событий |
+| `AddHandler` | `(method string, handler func(qrpc.Ctx))` | Регистрация RPC-обработчика |
+| `AddEventHandler` | `(method string, handler func(qrpc.EventCtx))` | Регистрация обработчика событий |
 
-**`internal.Ctx`** (RPC-обработчик):
+**`qrpc.Ctx`** (RPC-обработчик):
 
 | Метод | Возвращает | Описание |
 |--------|-----------|----------|
@@ -200,7 +199,7 @@ func NewServer(addr string, tls *tls.Config) (QRpcServer, error)
 | `SetHeaders([][]byte)` | — | Установить все заголовки ответа |
 | `Locals()` | `Locals` | Локальное хранилище запроса |
 
-**`internal.EventCtx`** (обработчик событий): `Body()`, `Headers()`, `Method()`, `GetHeader()`, `Locals()` — только чтение, ответ не отправляется.
+**`qrpc.EventCtx`** (обработчик событий): `Body()`, `Headers()`, `Method()`, `GetHeader()`, `Locals()` — только чтение, ответ не отправляется.
 
 ### Клиент
 
