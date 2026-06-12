@@ -22,7 +22,7 @@ import (
 var errClientInitFailed = errors.New("client initialization failed after retries")
 
 type RPCClient interface {
-	SendRequest(ctx context.Context, method []byte, body []byte, headers [][]byte) (qrpc.RespCtx, error)
+	SendRequest(ctx context.Context, method []byte, body []byte, headers [][]byte) (qrpc.Response, error)
 	Close() error
 }
 
@@ -30,7 +30,7 @@ type qrpcClientWrapper struct {
 	client qrpc.Client
 }
 
-func (w *qrpcClientWrapper) SendRequest(ctx context.Context, method []byte, body []byte, headers [][]byte) (qrpc.RespCtx, error) {
+func (w *qrpcClientWrapper) SendRequest(ctx context.Context, method []byte, body []byte, headers [][]byte) (qrpc.Response, error) {
 	req := w.client.NewRequest()
 	req.SetMethod(method)
 	req.SetBody(body)

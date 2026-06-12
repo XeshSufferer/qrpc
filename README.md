@@ -75,7 +75,7 @@ func main() {
   if err != nil {
     log.Fatal(err)
   }
-  log.Printf("Response: %s", resp.Body)
+  log.Printf("Response: %s", resp.Body())
   client.ReleaseResponse(resp)
 }
 ```
@@ -166,7 +166,7 @@ Payloads larger than 16 KB are automatically compressed with **zstd** (flags 4�
 └───────────────┘                     └───────────────┘
 ```
 
-**Client flow.** On `NewClient`, the multiplexer opens N QUIC streams (default 32) per connection and starts a read-cycle goroutine per stream. `NewRequest` obtains a pooled `ReqCtx` wrapping a protobuf `Request`. `SendRequest` assigns a random `request_id`, stores a `chan *Response` in the sharded map, encodes the request via the encoder, and writes it to a stream obtained from the round-robin balancer. The read-cycle goroutine decodes incoming frames, looks up `request_id` in the sharded map, and dispatches the response to the waiting channel. `SendEvent` writes a one-way frame with `request_id = 0` and no response is expected.
+**Client flow.** On `NewClient`, the multiplexer opens N QUIC streams (default 32) per connection and starts a read-cycle goroutine per stream. `NewRequest` obtains a pooled `Request` wrapping a protobuf `Request`. `SendRequest` assigns a random `request_id`, stores a `chan *Response` in the sharded map, encodes the request via the encoder, and writes it to a stream obtained from the round-robin balancer. The read-cycle goroutine decodes incoming frames, looks up `request_id` in the sharded map, and dispatches the response to the waiting channel. `SendEvent` writes a one-way frame with `request_id = 0` and no response is expected.
 
 **Server flow.** `NewServer` starts a QUIC listener. Each accepted connection gets a goroutine that accepts streams. Each stream runs a read cycle that decodes frames. Request frames (flag 1/4) dispatch to the registered handler via `qrpc.Ctx`; the handler sets the response and the server encodes and writes it back. Event frames (flag 3/6) dispatch to the event handler via `qrpc.EventCtx`; no response is sent.
 
@@ -209,14 +209,14 @@ func NewClient(ctx context.Context, addr string, tls *tls.Config, connsCount int
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `NewRequest()` | `ReqCtx` | Get a pooled request context |
-| `SendRequest(ctx, reqCtx)` | `(RespCtx, error)` | Send RPC and wait for response |
-| `SendEvent(ctx, reqCtx)` | `error` | Fire-and-forget event |
-| `ReleaseResponse(RespCtx)` | — | Return response to pool |
+| `NewRequest()` | `Request` | Get a pooled request context |
+| `SendRequest(ctx, req)` | `(Response, error)` | Send RPC and wait for response |
+| `SendEvent(ctx, req)` | `error` | Fire-and-forget event |
+| `ReleaseResponse(Response)` | — | Return response to pool |
 
-**`ReqCtx`:** `Body()`, `SetBody()`, `Headers()`, `SetHeaders()`, `Method()`, `SetMethod()`, `RequestId()`, `Locals()`.
+**`Request`:** `Body()`, `SetBody()`, `Headers()`, `SetHeaders()`, `Method()`, `SetMethod()`, `RequestId()`, `Locals()`.
 
-**`RespCtx`:** `Body()`, `Headers()`, `Code()`, `RequestId()`.
+**`Response`:** `Body()`, `Headers()`, `Code()`, `RequestId()`.
 
 ---
 

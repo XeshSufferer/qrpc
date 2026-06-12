@@ -59,7 +59,7 @@ func NewClient(addr string, connsCount int) (*Client, error) {
 	return &Client{pairs: pairs}, nil
 }
 
-func (c *Client) SendRequest(ctx context.Context, method []byte, body []byte, headers [][]byte) (qrpc.RespCtx, error) {
+func (c *Client) SendRequest(ctx context.Context, method []byte, body []byte, headers [][]byte) (qrpc.Response, error) {
 	idx := c.cursor.Add(1) - 1
 	p := &c.pairs[idx%uint64(len(c.pairs))]
 
@@ -72,7 +72,7 @@ func (c *Client) SendRequest(ctx context.Context, method []byte, body []byte, he
 	if err != nil {
 		return nil, err
 	}
-	return qrpc.NewRespCtx(resp), nil
+	return qrpc.NewResponse(resp), nil
 }
 
 func (c *Client) Close() error {

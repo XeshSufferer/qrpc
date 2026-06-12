@@ -133,100 +133,100 @@ func TestCtxReleaseReuses(t *testing.T) {
 	ReleaseCtx(ctx2)
 }
 
-func TestReqCtxSetMethodBodyHeaders(t *testing.T) {
+func TestRequestSetMethodBodyHeaders(t *testing.T) {
 	req := &gen.Request{}
-	rctx := NewReqCtx(req)
+	r := NewRequest(req)
 
-	rctx.SetMethod([]byte("test.method"))
-	rctx.SetBody([]byte("test-body"))
-	rctx.SetHeaders([][]byte{[]byte("h1"), []byte("v1")})
+	r.SetMethod([]byte("test.method"))
+	r.SetBody([]byte("test-body"))
+	r.SetHeaders([][]byte{[]byte("h1"), []byte("v1")})
 
-	if string(rctx.Method()) != "test.method" {
-		t.Fatalf("expected test.method, got %v", string(rctx.Method()))
+	if string(r.Method()) != "test.method" {
+		t.Fatalf("expected test.method, got %v", string(r.Method()))
 	}
-	if string(rctx.Body()) != "test-body" {
-		t.Fatalf("expected test-body, got %v", string(rctx.Body()))
+	if string(r.Body()) != "test-body" {
+		t.Fatalf("expected test-body, got %v", string(r.Body()))
 	}
-	h := rctx.Headers()
+	h := r.Headers()
 	if len(h) != 2 || string(h[0]) != "h1" || string(h[1]) != "v1" {
 		t.Fatalf("unexpected headers: %v", h)
 	}
 
-	ReleaseReqCtx(rctx)
+	ReleaseRequest(r)
 }
 
-func TestReqCtxRequestId(t *testing.T) {
+func TestRequestRequestId(t *testing.T) {
 	req := &gen.Request{RequestId: 42}
-	rctx := NewReqCtx(req)
-	if rctx.RequestId() != 42 {
-		t.Fatalf("expected 42, got %d", rctx.RequestId())
+	r := NewRequest(req)
+	if r.RequestId() != 42 {
+		t.Fatalf("expected 42, got %d", r.RequestId())
 	}
-	ReleaseReqCtx(rctx)
+	ReleaseRequest(r)
 }
 
-func TestReqCtxReqAccess(t *testing.T) {
+func TestRequestReqAccess(t *testing.T) {
 	req := &gen.Request{Method: []byte("m"), Body: []byte("b")}
-	rctx := NewReqCtx(req)
-	if rctx.Req() != req {
+	r := NewRequest(req)
+	if r.Req() != req {
 		t.Fatal("Req() should return the same pointer")
 	}
-	ReleaseReqCtx(rctx)
+	ReleaseRequest(r)
 }
 
-func TestReqCtxLocals(t *testing.T) {
+func TestRequestLocals(t *testing.T) {
 	req := &gen.Request{}
-	rctx := NewReqCtx(req)
-	rctx.Locals().Set("k", 42)
-	if v := rctx.Locals().Get("k").(int); v != 42 {
+	r := NewRequest(req)
+	r.Locals().Set("k", 42)
+	if v := r.Locals().Get("k").(int); v != 42 {
 		t.Fatalf("expected 42, got %v", v)
 	}
-	ReleaseReqCtx(rctx)
+	ReleaseRequest(r)
 }
 
-func TestRespCtxBody(t *testing.T) {
+func TestResponseBody(t *testing.T) {
 	resp := &gen.Response{Body: []byte("resp-body")}
-	r := NewRespCtx(resp)
+	r := NewResponse(resp)
 	if string(r.Body()) != "resp-body" {
 		t.Fatalf("expected resp-body, got %v", string(r.Body()))
 	}
-	ReleaseRespCtx(r)
+	ReleaseResponse(r)
 }
 
-func TestRespCtxCode(t *testing.T) {
+func TestResponseCode(t *testing.T) {
 	resp := &gen.Response{Code: 200}
-	r := NewRespCtx(resp)
+	r := NewResponse(resp)
 	if r.Code() != 200 {
 		t.Fatalf("expected 200, got %d", r.Code())
 	}
-	ReleaseRespCtx(r)
+	ReleaseResponse(r)
 }
 
-func TestRespCtxHeaders(t *testing.T) {
+func TestResponseHeaders(t *testing.T) {
 	resp := &gen.Response{Headers: [][]byte{[]byte("k"), []byte("v")}}
-	r := NewRespCtx(resp)
+	r := NewResponse(resp)
 	h := r.Headers()
 	if len(h) != 2 || string(h[0]) != "k" || string(h[1]) != "v" {
 		t.Fatalf("unexpected headers: %v", h)
 	}
-	ReleaseRespCtx(r)
+	ReleaseResponse(r)
 }
 
-func TestRespCtxRequestId(t *testing.T) {
+func TestResponseRequestId(t *testing.T) {
 	resp := &gen.Response{RequestId: 7}
-	r := NewRespCtx(resp)
+	r := NewResponse(resp)
 	if r.RequestId() != 7 {
 		t.Fatalf("expected 7, got %d", r.RequestId())
 	}
-	ReleaseRespCtx(r)
+	ReleaseResponse(r)
 }
 
-func TestRespCtxRespAccess(t *testing.T) {
+func TestResponseRespAccess(t *testing.T) {
 	resp := &gen.Response{Code: 200}
-	r := NewRespCtx(resp)
+	r := NewResponse(resp)
 	if r.Resp() != resp {
 		t.Fatal("Resp() should return the same pointer")
 	}
-	ReleaseRespCtx(r)
+	ReleaseResponse(r)
 }
 
 func TestCtxPoolReuse(t *testing.T) {

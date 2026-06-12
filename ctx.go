@@ -162,7 +162,7 @@ func (c *CtxImpl) SetHeader(key, value string) {
 	c.resp.Headers = append(c.resp.Headers, StringToBytes(key), StringToBytes(value))
 }
 
-type ReqCtx interface {
+type Request interface {
 	Locals() Locals
 	Body() []byte
 	SetBody([]byte)
@@ -173,26 +173,26 @@ type ReqCtx interface {
 	RequestId() uint64
 }
 
-type RespCtx interface {
+type Response interface {
 	Body() []byte
 	Headers() [][]byte
 	Code() uint32
 	RequestId() uint64
 }
 
-type ReqCtxImpl struct {
+type RequestImpl struct {
 	req    *gen.Request
 	locals Locals
 }
 
 var reqCtxPool = sync.Pool{
 	New: func() any {
-		return &ReqCtxImpl{}
+		return &RequestImpl{}
 	},
 }
 
-func NewReqCtx(req *gen.Request) *ReqCtxImpl {
-	ctx := reqCtxPool.Get().(*ReqCtxImpl)
+func NewRequest(req *gen.Request) *RequestImpl {
+	ctx := reqCtxPool.Get().(*RequestImpl)
 	ctx.req = req
 
 	if ctx.locals == nil {
@@ -202,86 +202,86 @@ func NewReqCtx(req *gen.Request) *ReqCtxImpl {
 	return ctx
 }
 
-func ReleaseReqCtx(ctx *ReqCtxImpl) {
+func ReleaseRequest(ctx *RequestImpl) {
 	ctx.req = nil
 	ctx.locals.Reset()
 	reqCtxPool.Put(ctx)
 }
 
-func (c *ReqCtxImpl) Locals() Locals {
+func (c *RequestImpl) Locals() Locals {
 	return c.locals
 }
 
-func (c *ReqCtxImpl) Body() []byte {
+func (c *RequestImpl) Body() []byte {
 	return c.req.Body
 }
 
-func (c *ReqCtxImpl) SetBody(b []byte) {
+func (c *RequestImpl) SetBody(b []byte) {
 	c.req.Body = b
 }
 
-func (c *ReqCtxImpl) Headers() [][]byte {
+func (c *RequestImpl) Headers() [][]byte {
 	return c.req.Headers
 }
 
-func (c *ReqCtxImpl) SetHeaders(h [][]byte) {
+func (c *RequestImpl) SetHeaders(h [][]byte) {
 	c.req.Headers = h
 }
 
-func (c *ReqCtxImpl) Method() []byte {
+func (c *RequestImpl) Method() []byte {
 	return c.req.Method
 }
 
-func (c *ReqCtxImpl) SetMethod(m []byte) {
+func (c *RequestImpl) SetMethod(m []byte) {
 	c.req.Method = m
 }
 
-func (c *ReqCtxImpl) RequestId() uint64 {
+func (c *RequestImpl) RequestId() uint64 {
 	return c.req.RequestId
 }
 
-func (c *ReqCtxImpl) Req() *gen.Request {
+func (c *RequestImpl) Req() *gen.Request {
 	return c.req
 }
 
-type RespCtxImpl struct {
+type ResponseImpl struct {
 	resp *gen.Response
 }
 
 var respCtxPool = sync.Pool{
 	New: func() any {
-		return &RespCtxImpl{}
+		return &ResponseImpl{}
 	},
 }
 
-func NewRespCtx(resp *gen.Response) *RespCtxImpl {
-	ctx := respCtxPool.Get().(*RespCtxImpl)
+func NewResponse(resp *gen.Response) *ResponseImpl {
+	ctx := respCtxPool.Get().(*ResponseImpl)
 	ctx.resp = resp
 	return ctx
 }
 
-func ReleaseRespCtx(ctx *RespCtxImpl) {
+func ReleaseResponse(ctx *ResponseImpl) {
 	ctx.resp = nil
 	respCtxPool.Put(ctx)
 }
 
-func (c *RespCtxImpl) Body() []byte {
+func (c *ResponseImpl) Body() []byte {
 	return c.resp.Body
 }
 
-func (c *RespCtxImpl) Headers() [][]byte {
+func (c *ResponseImpl) Headers() [][]byte {
 	return c.resp.Headers
 }
 
-func (c *RespCtxImpl) Code() uint32 {
+func (c *ResponseImpl) Code() uint32 {
 	return c.resp.Code
 }
 
-func (c *RespCtxImpl) RequestId() uint64 {
+func (c *ResponseImpl) RequestId() uint64 {
 	return c.resp.RequestId
 }
 
-func (c *RespCtxImpl) Resp() *gen.Response {
+func (c *ResponseImpl) Resp() *gen.Response {
 	return c.resp
 }
 

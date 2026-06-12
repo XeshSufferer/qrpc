@@ -15,14 +15,14 @@ import (
 	"github.com/XeshSufferer/qrpc/transport/quic/client"
 )
 
-var _ ReqCtx = (*ReqCtxImpl)(nil)
-var _ RespCtx = (*RespCtxImpl)(nil)
+var _ Request = (*RequestImpl)(nil)
+var _ Response = (*ResponseImpl)(nil)
 
 type Client interface {
-	NewRequest() ReqCtx
-	SendRequest(ctx context.Context, reqCtx ReqCtx) (RespCtx, error)
-	ReleaseResponse(respCtx RespCtx)
-	SendEvent(ctx context.Context, reqCtx ReqCtx) error
+	NewRequest() Request
+	SendRequest(ctx context.Context, reqCtx Request) (Response, error)
+	ReleaseResponse(respCtx Response)
+	SendEvent(ctx context.Context, reqCtx Request) error
 }
 
 type ClientImpl struct {
@@ -100,8 +100,8 @@ func (clientimpl *ClientImpl) getMultiplexor() client.Multiplexer {
 	return clientimpl.multiplexors[idx%uint32(len(clientimpl.multiplexors))]
 }
 
-func (clientimpl *ClientImpl) NewRequest() ReqCtx {
-	return NewReqCtx(client.GetRequest())
+func (clientimpl *ClientImpl) NewRequest() Request {
+	return NewRequest(client.GetRequest())
 }
 
 func (clientimpl *ClientImpl) sendRequestInternal(req *gen.Request) (chan *gen.Response, error) {
@@ -160,10 +160,10 @@ func (clientimpl *ClientImpl) waitResponse(
 
 func (clientimpl *ClientImpl) SendRequest(
 	ctx context.Context,
-	reqCtx ReqCtx,
-) (RespCtx, error) {
+	reqCtx Request,
+) (Response, error) {
 
-	impl := reqCtx.(*ReqCtxImpl)
+	impl := reqCtx.(*RequestImpl)
 	r := impl.Req()
 	if r.RequestId == 0 {
 		r.RequestId = rand.Uint64()
@@ -172,7 +172,7 @@ func (clientimpl *ClientImpl) SendRequest(
 	id := r.RequestId
 
 	ch, err := clientimpl.sendRequestInternal(r)
-	ReleaseReqCtx(impl)
+	ReleaseRequest(impl)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +182,7 @@ func (clientimpl *ClientImpl) SendRequest(
 		return nil, err
 	}
 
-	return NewRespCtx(resp), nil
+	return NewResponse(resp), nil
 }
 
 func (clientimpl *ClientImpl) sendEventInternal(req *gen.Request) error {
@@ -214,19 +214,19 @@ func (clientimpl *ClientImpl) sendEventInternal(req *gen.Request) error {
 
 func (clientimpl *ClientImpl) SendEvent(
 	ctx context.Context,
-	reqCtx ReqCtx,
+	reqCtx Request,
 ) error {
 
-	impl := reqCtx.(*ReqCtxImpl)
+	impl := reqCtx.(*RequestImpl)
 	err := clientimpl.sendEventInternal(impl.Req())
-	ReleaseReqCtx(impl)
+	ReleaseRequest(impl)
 	return err
 }
 
-func (c *ClientImpl) ReleaseResponse(respCtx RespCtx) {
-	impl := respCtx.(*RespCtxImpl)
+func (c *ClientImpl) ReleaseResponse(respCtx Response) {
+	impl := respCtx.(*ResponseImpl)
 	client.ReleaseResponse(impl.Resp())
-	ReleaseRespCtx(impl)
+	ReleaseResponse(impl)
 }
 
 func (c *ClientImpl) getChan() chan *gen.Response {

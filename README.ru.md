@@ -75,7 +75,7 @@ func main() {
   if err != nil {
     log.Fatal(err)
   }
-  log.Printf("Response: %s", resp.Body)
+  log.Printf("Response: %s", resp.Body())
   client.ReleaseResponse(resp)
 }
 ```
@@ -166,7 +166,7 @@ Payload более 16 КБ автоматически сжимается **zstd*
 └───────────────┘                     └───────────────┘
 ```
 
-**Клиент.** При `NewClient` мультиплексор открывает N QUIC-стримов (по умолчанию 32) на соединение и запускает по горутине чтения на стрим. `NewRequest` получает из пула `ReqCtx`, обёртку над protobuf `Request`. `SendRequest` генерирует случайный `request_id`, сохраняет `chan *Response` в sharded map, кодирует запрос через encoder и отправляет на стрим, полученный от round-robin балансировщика. Горутина чтения декодирует входящие фреймы, находит `request_id` в карте и отправляет ответ в канал. `SendEvent` отправляет однонаправленный фрейм с `request_id = 0` без ожидания ответа.
+**Клиент.** При `NewClient` мультиплексор открывает N QUIC-стримов (по умолчанию 32) на соединение и запускает по горутине чтения на стрим. `NewRequest` получает из пула `Request`, обёртку над protobuf `Request`. `SendRequest` генерирует случайный `request_id`, сохраняет `chan *Response` в sharded map, кодирует запрос через encoder и отправляет на стрим, полученный от round-robin балансировщика. Горутина чтения декодирует входящие фреймы, находит `request_id` в карте и отправляет ответ в канал. `SendEvent` отправляет однонаправленный фрейм с `request_id = 0` без ожидания ответа.
 
 **Сервер.** `NewServer` запускает QUIC-слушатель. Каждое принятое соединение получает горутину, принимающую стримы. Каждый стрим выполняет цикл чтения: декодирует фрейм. RPC-запросы (флаг 1/4) диспетчеризуются к хендлеру через `qrpc.Ctx`; хендлер устанавливает ответ, сервер кодирует и отправляет его обратно. События (флаг 3/6) диспетчеризуются к обработчику событий через `qrpc.EventCtx`; ответ не отправляется.
 
@@ -209,14 +209,14 @@ func NewClient(ctx context.Context, addr string, tls *tls.Config, connsCount int
 
 | Метод | Возвращает | Описание |
 |--------|-----------|----------|
-| `NewRequest()` | `ReqCtx` | Получить контекст запроса из пула |
-| `SendRequest(ctx, reqCtx)` | `(RespCtx, error)` | Отправить RPC и ждать ответ |
-| `SendEvent(ctx, reqCtx)` | `error` | Отправить событие (fire-and-forget) |
-| `ReleaseResponse(RespCtx)` | — | Вернуть ответ в пул |
+| `NewRequest()` | `Request` | Получить контекст запроса из пула |
+| `SendRequest(ctx, req)` | `(Response, error)` | Отправить RPC и ждать ответ |
+| `SendEvent(ctx, req)` | `error` | Отправить событие (fire-and-forget) |
+| `ReleaseResponse(Response)` | — | Вернуть ответ в пул |
 
-**`ReqCtx`:** `Body()`, `SetBody()`, `Headers()`, `SetHeaders()`, `Method()`, `SetMethod()`, `RequestId()`, `Locals()`.
+**`Request`:** `Body()`, `SetBody()`, `Headers()`, `SetHeaders()`, `Method()`, `SetMethod()`, `RequestId()`, `Locals()`.
 
-**`RespCtx`:** `Body()`, `Headers()`, `Code()`, `RequestId()`.
+**`Response`:** `Body()`, `Headers()`, `Code()`, `RequestId()`.
 
 ---
 
