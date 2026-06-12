@@ -3,6 +3,7 @@ package qrpc
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"math/rand/v2"
 	"sync"
 	"sync/atomic"
@@ -15,14 +16,20 @@ import (
 	"github.com/XeshSufferer/qrpc/transport/quic/client"
 )
 
-var _ Request = (*RequestImpl)(nil)
-var _ Response = (*ResponseImpl)(nil)
+var (
+	_ Request  = (*RequestImpl)(nil)
+	_ Response = (*ResponseImpl)(nil)
+
+	ErrClientClosed = errors.New("client is closed")
+)
 
 type Client interface {
 	NewRequest() Request
-	SendRequest(ctx context.Context, reqCtx Request) (Response, error)
-	ReleaseResponse(respCtx Response)
-	SendEvent(ctx context.Context, reqCtx Request) error
+	SendRequest(ctx context.Context, req Request) (Response, error)
+	ReleaseResponse(resp Response)
+	SendEvent(ctx context.Context, req Request) error
+	ReleaseRequest(req Request)
+	Close()
 }
 
 type ClientImpl struct {
@@ -32,10 +39,13 @@ type ClientImpl struct {
 	encoder      internal.Encoder
 	chansMap     *internal.ShardedMap
 	chansPool    *sync.Pool
+
+	closeOnce sync.Once
+	closeCh   chan struct{}
+	pendingWg sync.WaitGroup
 }
 
 func NewClient(ctx context.Context, addr string, tls *tls.Config, connsCount int) (Client, error) {
-
 	config := &quic.Config{
 		KeepAlivePeriod: 15 * time.Second,
 		MaxIdleTimeout:  60 * time.Second,
@@ -90,42 +100,58 @@ func newClient(conns []*quic.Conn) Client {
 		chansMap:     chans,
 		chansPool:    chansPool,
 		encoder:      internal.NewEncoder(),
+		closeCh:      make(chan struct{}),
 	}
 }
 
 var TimeoutDuration = time.Second * 30
 
-func (clientimpl *ClientImpl) getMultiplexor() client.Multiplexer {
-	idx := clientimpl.connCounter.Add(1) - 1
-	return clientimpl.multiplexors[idx%uint32(len(clientimpl.multiplexors))]
+func (c *ClientImpl) getMultiplexor() client.Multiplexer {
+	idx := c.connCounter.Add(1) - 1
+	return c.multiplexors[idx%uint32(len(c.multiplexors))]
 }
 
-func (clientimpl *ClientImpl) NewRequest() Request {
+func (c *ClientImpl) NewRequest() Request {
 	return NewRequest(client.GetRequest())
 }
 
-func (clientimpl *ClientImpl) sendRequestInternal(req *gen.Request) (chan *gen.Response, error) {
+func (c *ClientImpl) ReleaseRequest(req Request) {
+	ReleaseRequest(req.(*RequestImpl))
+}
+
+func (c *ClientImpl) sendRequestInternal(req *gen.Request) (chan *gen.Response, error) {
+	select {
+	case <-c.closeCh:
+		return nil, ErrClientClosed
+	default:
+	}
+
 	if req.RequestId == 0 {
 		req.RequestId = rand.Uint64()
 	}
 
-	ch := clientimpl.getChan()
+	ch := c.getChan()
+	c.chansMap.Store(req.RequestId, ch)
 
-	clientimpl.chansMap.Store(req.RequestId, ch)
-
-	buf, err := clientimpl.encoder.EncodeRequest(req)
+	buf, err := c.encoder.EncodeRequest(req)
 	client.ReleaseRequest(req)
 	if err != nil {
+		c.chansMap.Delete(req.RequestId)
+		c.putChan(ch)
 		return nil, err
 	}
 
-	mux := clientimpl.getMultiplexor()
+	mux := c.getMultiplexor()
 	stream, err := mux.GetStream()
 	if err != nil {
+		c.chansMap.Delete(req.RequestId)
+		c.putChan(ch)
 		return nil, err
 	}
 
 	if err := stream.SetWriteDeadline(time.Now().Add(TimeoutDuration)); err != nil {
+		c.chansMap.Delete(req.RequestId)
+		c.putChan(ch)
 		buf.Release()
 		return nil, err
 	}
@@ -134,36 +160,44 @@ func (clientimpl *ClientImpl) sendRequestInternal(req *gen.Request) (chan *gen.R
 	buf.Release()
 
 	if err != nil {
+		c.chansMap.Delete(req.RequestId)
+		c.putChan(ch)
 		return nil, err
 	}
 
 	return ch, nil
 }
 
-func (clientimpl *ClientImpl) waitResponse(
+func (c *ClientImpl) waitResponse(
 	ctx context.Context,
 	ch chan *gen.Response,
 	id uint64,
 ) (*gen.Response, error) {
+	c.pendingWg.Add(1)
+	defer c.pendingWg.Done()
 
 	select {
 	case <-ctx.Done():
-		clientimpl.putChan(ch)
-		clientimpl.chansMap.Delete(id)
+		c.putChan(ch)
+		c.chansMap.Delete(id)
 		return nil, ctx.Err()
 
+	case <-c.closeCh:
+		c.putChan(ch)
+		c.chansMap.Delete(id)
+		return nil, ErrClientClosed
+
 	case v := <-ch:
-		clientimpl.putChan(ch)
+		c.putChan(ch)
 		return v, nil
 	}
 }
 
-func (clientimpl *ClientImpl) SendRequest(
+func (c *ClientImpl) SendRequest(
 	ctx context.Context,
-	reqCtx Request,
+	req Request,
 ) (Response, error) {
-
-	impl := reqCtx.(*RequestImpl)
+	impl := req.(*RequestImpl)
 	r := impl.Req()
 	if r.RequestId == 0 {
 		r.RequestId = rand.Uint64()
@@ -171,13 +205,13 @@ func (clientimpl *ClientImpl) SendRequest(
 
 	id := r.RequestId
 
-	ch, err := clientimpl.sendRequestInternal(r)
+	ch, err := c.sendRequestInternal(r)
 	ReleaseRequest(impl)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := clientimpl.waitResponse(ctx, ch, id)
+	resp, err := c.waitResponse(ctx, ch, id)
 	if err != nil {
 		return nil, err
 	}
@@ -185,16 +219,21 @@ func (clientimpl *ClientImpl) SendRequest(
 	return NewResponse(resp), nil
 }
 
-func (clientimpl *ClientImpl) sendEventInternal(req *gen.Request) error {
-	req.RequestId = 0
+func (c *ClientImpl) sendEventInternal(req *gen.Request) error {
+	select {
+	case <-c.closeCh:
+		return ErrClientClosed
+	default:
+	}
 
-	buf, err := clientimpl.encoder.EncodeEvent(req)
+	req.RequestId = 0
+	buf, err := c.encoder.EncodeEvent(req)
 	client.ReleaseRequest(req)
 	if err != nil {
 		return err
 	}
 
-	mux := clientimpl.getMultiplexor()
+	mux := c.getMultiplexor()
 	stream, err := mux.GetStream()
 	if err != nil {
 		buf.Release()
@@ -212,19 +251,18 @@ func (clientimpl *ClientImpl) sendEventInternal(req *gen.Request) error {
 	return err
 }
 
-func (clientimpl *ClientImpl) SendEvent(
+func (c *ClientImpl) SendEvent(
 	ctx context.Context,
-	reqCtx Request,
+	req Request,
 ) error {
-
-	impl := reqCtx.(*RequestImpl)
-	err := clientimpl.sendEventInternal(impl.Req())
+	impl := req.(*RequestImpl)
+	err := c.sendEventInternal(impl.Req())
 	ReleaseRequest(impl)
 	return err
 }
 
-func (c *ClientImpl) ReleaseResponse(respCtx Response) {
-	impl := respCtx.(*ResponseImpl)
+func (c *ClientImpl) ReleaseResponse(resp Response) {
+	impl := resp.(*ResponseImpl)
 	client.ReleaseResponse(impl.Resp())
 	ReleaseResponse(impl)
 }
@@ -235,4 +273,16 @@ func (c *ClientImpl) getChan() chan *gen.Response {
 
 func (c *ClientImpl) putChan(ch chan *gen.Response) {
 	c.chansPool.Put(ch)
+}
+
+func (c *ClientImpl) Close() {
+	c.closeOnce.Do(func() {
+		close(c.closeCh)
+
+		c.pendingWg.Wait()
+
+		for _, m := range c.multiplexors {
+			m.Close()
+		}
+	})
 }

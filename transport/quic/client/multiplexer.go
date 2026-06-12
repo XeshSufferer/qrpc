@@ -8,15 +8,16 @@ import (
 	"sync"
 	"time"
 
+	quic "github.com/XeshSufferer/aquic-go"
 	"github.com/XeshSufferer/qrpc/internal"
 	"github.com/XeshSufferer/qrpc/protos/pb/gen"
 	qrpc_quic "github.com/XeshSufferer/qrpc/transport/quic"
 	"github.com/XeshSufferer/qrpc/transport/types"
-	"github.com/XeshSufferer/aquic-go"
 )
 
 type Multiplexer interface {
 	GetStream() (*quic.Stream, error)
+	Close()
 }
 
 type MultiplexerImpl struct {
@@ -85,6 +86,10 @@ func (m *MultiplexerImpl) GetStream() (*quic.Stream, error) {
 	return s, nil
 }
 
+func (m *MultiplexerImpl) Close() {
+	m.balancer.Reset()
+}
+
 func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 	headerLengthBuff := make([]byte, 4)
 	flagBuff := make([]byte, 1)
@@ -96,6 +101,10 @@ func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 		if err != nil {
 			if IsTimeoutErr(err) {
 				slog.Debug("peer disconnected")
+				return
+			}
+			if isApplicationErr(err) {
+				slog.Debug("client closed connection")
 				return
 			}
 			slog.Error("error by read header length in read cycle", "err", err)
@@ -115,6 +124,10 @@ func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 				slog.Debug("peer disconnected")
 				return
 			}
+			if isApplicationErr(err) {
+				slog.Debug("client closed connection")
+				return
+			}
 
 			slog.Error("error by read flag in read cycle", "err", err)
 			return
@@ -132,6 +145,10 @@ func (m *MultiplexerImpl) readCycle(s *quic.Stream) {
 		if err != nil {
 			if IsTimeoutErr(err) {
 				slog.Debug("peer disconnected")
+				return
+			}
+			if isApplicationErr(err) {
+				slog.Debug("client closed connection")
 				return
 			}
 
@@ -262,4 +279,9 @@ func IsTimeoutErr(err error) bool {
 	}
 
 	return false
+}
+
+func isApplicationErr(err error) bool {
+	var appErr *quic.ApplicationError
+	return errors.As(err, &appErr)
 }

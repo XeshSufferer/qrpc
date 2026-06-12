@@ -4,8 +4,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	quic "github.com/XeshSufferer/aquic-go"
 	"github.com/XeshSufferer/qrpc/transport/types"
-	"github.com/XeshSufferer/aquic-go"
 )
 
 type Balancer interface {
@@ -68,7 +68,14 @@ func (b *BalancerImpl) Reset() {
 
 	b.counter.Store(0)
 
-	b.snapshot.Store(&streamsSnapshot{
+	old := b.snapshot.Swap(&streamsSnapshot{
 		streams: make([]*quic.Stream, 0, 32),
 	})
+
+	for _, s := range old.streams {
+		func() {
+			defer func() { recover() }()
+			s.Close()
+		}()
+	}
 }

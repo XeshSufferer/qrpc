@@ -132,6 +132,10 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 				slog.Debug("peer disconnected")
 				return
 			}
+			if isApplicationErr(err) {
+				slog.Debug("client closed connection")
+				return
+			}
 			slog.Error("error by read header length in read cycle", "err", err)
 			return
 		}
@@ -145,6 +149,10 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 
 		_, err = io.ReadFull(stream, flagBuff)
 		if err != nil {
+			if isApplicationErr(err) {
+				slog.Debug("client closed connection")
+				return
+			}
 			slog.Error("error by read flag in read cycle", "err", err)
 			return
 		}
@@ -159,6 +167,10 @@ func (s *QRPCServerImpl) streamReadCycle(stream *quic.Stream) {
 
 		_, err = io.ReadFull(stream, reqBuff)
 		if err != nil {
+			if isApplicationErr(err) {
+				slog.Debug("client closed connection")
+				return
+			}
 			slog.Error("error by read request payload in read cycle", "err", err)
 			return
 		}
@@ -263,4 +275,9 @@ func IsTimeoutErr(err error) bool {
 	}
 
 	return false
+}
+
+func isApplicationErr(err error) bool {
+	var appErr *quic.ApplicationError
+	return errors.As(err, &appErr)
 }
