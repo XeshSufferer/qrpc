@@ -213,6 +213,7 @@ func NewClient(ctx context.Context, addr string, tls *tls.Config, connsCount int
 | `SendRequest(ctx, req)` | `(Response, error)` | Отправить RPC и ждать ответ |
 | `SendEvent(ctx, req)` | `error` | Отправить событие (fire-and-forget) |
 | `ReleaseResponse(Response)` | — | Вернуть ответ в пул |
+| `ReleaseRequest(Request)` | — | Вернуть запрос в пул |
 
 **`Request`:** `Body()`, `SetBody()`, `Headers()`, `SetHeaders()`, `Method()`, `SetMethod()`, `RequestId()`, `Locals()`.
 

@@ -15,13 +15,16 @@ const (
 	compressionThreshold = 16384
 )
 
+// Buffer is a reusable byte buffer obtained from a pool.
 type Buffer struct {
 	data []byte
 	used int
 }
 
+// Bytes returns the written portion of the buffer.
 func (b *Buffer) Bytes() []byte { return b.data[:b.used] }
 
+// Release returns the buffer to the pool for reuse.
 func (b *Buffer) Release() {
 	if b == nil {
 		return
@@ -37,14 +40,18 @@ var bufferPool = sync.Pool{
 	},
 }
 
+// Encoder serializes protobuf Request and Response messages
+// into the qrpc wire format with optional zstd compression.
 type Encoder interface {
 	EncodeRequest(req *gen.Request) (*Buffer, error)
 	EncodeResponse(resp *gen.Response) (*Buffer, error)
 	EncodeEvent(req *gen.Request) (*Buffer, error)
 }
 
+// EncoderImpl is a stateless encoder that pools internal buffers.
 type EncoderImpl struct{}
 
+// NewEncoder creates a new Encoder.
 func NewEncoder() Encoder {
 	return &EncoderImpl{}
 }
@@ -58,6 +65,7 @@ func NewEncoder() Encoder {
 //
 // Example:
 // [00 00 00 15][01][protobuf...]
+// EncodeRequest serializes a protobuf Request into a Buffer.
 func (e *EncoderImpl) EncodeRequest(req *gen.Request) (*Buffer, error) {
 	return e.encodeMessage(
 		req.SizeVT(),
@@ -67,6 +75,7 @@ func (e *EncoderImpl) EncodeRequest(req *gen.Request) (*Buffer, error) {
 	)
 }
 
+// EncodeResponse serializes a protobuf Response into a Buffer.
 func (e *EncoderImpl) EncodeResponse(resp *gen.Response) (*Buffer, error) {
 	return e.encodeMessage(
 		resp.SizeVT(),
@@ -76,6 +85,7 @@ func (e *EncoderImpl) EncodeResponse(resp *gen.Response) (*Buffer, error) {
 	)
 }
 
+// EncodeEvent serializes a protobuf Request as a one-way event frame.
 func (e *EncoderImpl) EncodeEvent(req *gen.Request) (*Buffer, error) {
 	return e.encodeMessage(
 		req.SizeVT(),
@@ -155,12 +165,14 @@ var zstdDecPool = sync.Pool{
 	},
 }
 
+// CompressZstd compresses data using zstd with a pooled encoder.
 func CompressZstd(src []byte) ([]byte, error) {
 	enc := zstdEncPool.Get().(*zstd.Encoder)
 	defer zstdEncPool.Put(enc)
 	return enc.EncodeAll(src, nil), nil
 }
 
+// DecompressZstd decompresses data using zstd with a pooled decoder.
 func DecompressZstd(src []byte) ([]byte, error) {
 	dec := zstdDecPool.Get().(*zstd.Decoder)
 	defer zstdDecPool.Put(dec)

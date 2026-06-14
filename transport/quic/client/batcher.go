@@ -12,6 +12,10 @@ const (
 	BatchingEnabled    = true
 )
 
+// Batcher coalesces small writes into larger ones with a configurable
+// flush window to reduce syscall overhead. When BatchingEnabled is true,
+// the first write goes through immediately and subsequent writes are buffered
+// until Flush is called.
 type Batcher struct {
 	stream    *quic.Stream
 	mu        sync.Mutex
@@ -20,6 +24,7 @@ type Batcher struct {
 	window    time.Duration
 }
 
+// NewBatcher creates a new Batcher for the given stream.
 func NewBatcher(s *quic.Stream) *Batcher {
 	return &Batcher{
 		stream:    s,

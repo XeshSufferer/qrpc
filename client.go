@@ -20,9 +20,13 @@ var (
 	_ Request  = (*RequestImpl)(nil)
 	_ Response = (*ResponseImpl)(nil)
 
+	// ErrClientClosed is returned when attempting to use a closed client.
 	ErrClientClosed = errors.New("client is closed")
 )
 
+// Client is the qrpc client interface for sending RPC requests and one-way events
+// over QUIC connections. Implementations use stream multiplexing, object pooling,
+// and a sharded concurrent map for request-response dispatch.
 type Client interface {
 	NewRequest() Request
 	SendRequest(ctx context.Context, req Request) (Response, error)
@@ -32,6 +36,8 @@ type Client interface {
 	Close()
 }
 
+// ClientImpl is the concrete implementation of Client.
+// It manages multiple QUIC connections, stream multiplexers, and response channels.
 type ClientImpl struct {
 	conns        []*quic.Conn
 	multiplexors []client.Multiplexer
@@ -45,6 +51,8 @@ type ClientImpl struct {
 	pendingWg sync.WaitGroup
 }
 
+// NewClient creates a new qrpc client with connsCount QUIC connections to the given addr.
+// Each connection opens a pool of pre-created QUIC streams and runs read-cycle goroutines.
 func NewClient(ctx context.Context, addr string, tls *tls.Config, connsCount int) (Client, error) {
 	config := &quic.Config{
 		KeepAlivePeriod: 15 * time.Second,
@@ -104,6 +112,8 @@ func newClient(conns []*quic.Conn) Client {
 	}
 }
 
+// TimeoutDuration is the write deadline applied to stream operations.
+// It defaults to 30 seconds.
 var TimeoutDuration = time.Second * 30
 
 func (c *ClientImpl) getMultiplexor() client.Multiplexer {
@@ -111,10 +121,12 @@ func (c *ClientImpl) getMultiplexor() client.Multiplexer {
 	return c.multiplexors[idx%uint32(len(c.multiplexors))]
 }
 
+// NewRequest obtains a pooled Request wrapping a protobuf Request message.
 func (c *ClientImpl) NewRequest() Request {
 	return NewRequest(client.GetRequest())
 }
 
+// ReleaseRequest returns a Request to the pool for reuse.
 func (c *ClientImpl) ReleaseRequest(req Request) {
 	ReleaseRequest(req.(*RequestImpl))
 }
@@ -194,6 +206,8 @@ func (c *ClientImpl) waitResponse(
 	}
 }
 
+// SendRequest sends an RPC request and waits for a response.
+// The request is released back to the pool after sending.
 func (c *ClientImpl) SendRequest(
 	ctx context.Context,
 	req Request,
@@ -253,6 +267,8 @@ func (c *ClientImpl) sendEventInternal(req *gen.Request) error {
 	return err
 }
 
+// SendEvent sends a one-way event with no response expected.
+// The request is released back to the pool after sending.
 func (c *ClientImpl) SendEvent(
 	ctx context.Context,
 	req Request,
@@ -263,6 +279,7 @@ func (c *ClientImpl) SendEvent(
 	return err
 }
 
+// ReleaseResponse returns a Response to the pool for reuse.
 func (c *ClientImpl) ReleaseResponse(resp Response) {
 	impl := resp.(*ResponseImpl)
 	client.ReleaseResponse(impl.Resp())
@@ -277,6 +294,8 @@ func (c *ClientImpl) putChan(ch chan *gen.Response) {
 	c.chansPool.Put(ch)
 }
 
+// Close gracefully shuts down the client, waits for pending requests,
+// and closes all multiplexers and QUIC connections.
 func (c *ClientImpl) Close() {
 	c.closeOnce.Do(func() {
 		close(c.closeCh)

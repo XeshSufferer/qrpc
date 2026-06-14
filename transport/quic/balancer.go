@@ -8,6 +8,8 @@ import (
 	"github.com/XeshSufferer/qrpc/transport/types"
 )
 
+// Balancer provides lock-free atomic round-robin load balancing
+// across a set of QUIC streams.
 type Balancer interface {
 	GetStream() (*quic.Stream, error)
 	AddStream(stream *quic.Stream)
@@ -18,12 +20,15 @@ type streamsSnapshot struct {
 	streams []*quic.Stream
 }
 
+// BalancerImpl is the concrete implementation of Balancer.
+// It uses an atomic snapshot for lock-free reads and a mutex for writes.
 type BalancerImpl struct {
 	snapshot atomic.Pointer[streamsSnapshot]
 	m        sync.Mutex
 	counter  atomic.Uint32
 }
 
+// NewBalancer creates a new empty Balancer.
 func NewBalancer() Balancer {
 	b := &BalancerImpl{}
 

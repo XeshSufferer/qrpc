@@ -8,6 +8,8 @@ import (
 	"github.com/XeshSufferer/qrpc/protos/pb/gen"
 )
 
+// Locals is a per-request local storage for passing arbitrary data
+// between middlewares and handlers.
 type Locals interface {
 	SetString(key, value string)
 	GetString(key string) string
@@ -16,12 +18,15 @@ type Locals interface {
 	Reset()
 }
 
+// LocalsImpl is the concrete implementation of Locals with
+// separate maps for string and arbitrary values, protected by an RWMutex.
 type LocalsImpl struct {
 	anyes   map[string]any
 	strings map[string]string
 	mu      sync.RWMutex
 }
 
+// NewLocals creates a new empty Locals.
 func NewLocals() Locals {
 	return &LocalsImpl{
 		anyes:   map[string]any{},
@@ -61,6 +66,8 @@ func (l *LocalsImpl) Reset() {
 	clear(l.strings)
 }
 
+// Ctx is the context passed to RPC handlers. It provides read access to
+// the incoming request and write access to the response.
 type Ctx interface {
 	Locals() Locals
 	Body() []byte
@@ -73,6 +80,8 @@ type Ctx interface {
 	SetCode(code uint32)
 }
 
+// EventCtx is the context passed to event handlers. It provides read-only
+// access to the event — no response is sent.
 type EventCtx interface {
 	Locals() Locals
 	Body() []byte
@@ -81,6 +90,8 @@ type EventCtx interface {
 	Method() []byte
 }
 
+// CtxImpl is the concrete implementation of Ctx and EventCtx.
+// It wraps a protobuf Request and Response and is pooled via sync.Pool.
 type CtxImpl struct {
 	req    *gen.Request
 	resp   *gen.Response
@@ -93,6 +104,7 @@ var ctxPool = sync.Pool{
 	},
 }
 
+// NewCtx obtains a pooled CtxImpl wrapping the given request and response.
 func NewCtx(req *gen.Request, resp *gen.Response) *CtxImpl {
 	ctx := ctxPool.Get().(*CtxImpl)
 
@@ -106,6 +118,7 @@ func NewCtx(req *gen.Request, resp *gen.Response) *CtxImpl {
 	return ctx
 }
 
+// ReleaseCtx returns a CtxImpl to the pool for reuse.
 func ReleaseCtx(ctx *CtxImpl) {
 	ctx.req = nil
 	ctx.resp = nil
@@ -162,6 +175,8 @@ func (c *CtxImpl) SetHeader(key, value string) {
 	c.resp.Headers = append(c.resp.Headers, stringToBytes(key), stringToBytes(value))
 }
 
+// Request is the client-side request interface for setting method, body,
+// headers, and accessing per-request local storage.
 type Request interface {
 	Locals() Locals
 	Body() []byte
@@ -173,6 +188,8 @@ type Request interface {
 	RequestId() uint64
 }
 
+// Response is the client-side response interface for reading the
+// response body, headers, status code, and matching request ID.
 type Response interface {
 	Body() []byte
 	Headers() [][]byte
@@ -180,6 +197,7 @@ type Response interface {
 	RequestId() uint64
 }
 
+// RequestImpl wraps a protobuf Request and provides the Request interface.
 type RequestImpl struct {
 	req    *gen.Request
 	locals Locals
@@ -191,6 +209,7 @@ var reqCtxPool = sync.Pool{
 	},
 }
 
+// NewRequest wraps a protobuf Request in a pooled RequestImpl.
 func NewRequest(req *gen.Request) *RequestImpl {
 	ctx := reqCtxPool.Get().(*RequestImpl)
 	ctx.req = req
@@ -202,6 +221,7 @@ func NewRequest(req *gen.Request) *RequestImpl {
 	return ctx
 }
 
+// ReleaseRequest returns a RequestImpl to the pool for reuse.
 func ReleaseRequest(ctx *RequestImpl) {
 	ctx.req = nil
 	ctx.locals.Reset()
@@ -244,6 +264,7 @@ func (c *RequestImpl) Req() *gen.Request {
 	return c.req
 }
 
+// ResponseImpl wraps a protobuf Response and provides the Response interface.
 type ResponseImpl struct {
 	resp *gen.Response
 }
@@ -254,12 +275,14 @@ var respCtxPool = sync.Pool{
 	},
 }
 
+// NewResponse wraps a protobuf Response in a pooled ResponseImpl.
 func NewResponse(resp *gen.Response) *ResponseImpl {
 	ctx := respCtxPool.Get().(*ResponseImpl)
 	ctx.resp = resp
 	return ctx
 }
 
+// ReleaseResponse returns a ResponseImpl to the pool for reuse.
 func ReleaseResponse(ctx *ResponseImpl) {
 	ctx.resp = nil
 	respCtxPool.Put(ctx)

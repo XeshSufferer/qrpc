@@ -19,12 +19,17 @@ import (
 var _ Ctx = (*CtxImpl)(nil)
 var _ EventCtx = (*CtxImpl)(nil)
 
+// QRpcServer is the server interface for registering RPC and event handlers
+// and accepting QUIC connections.
 type QRpcServer interface {
 	startListen()
 	AddHandler(method string, handler func(Ctx))
 	AddEventHandler(method string, handler func(EventCtx))
 }
 
+// QRPCServerImpl is the concrete implementation of QRpcServer.
+// It listens on a QUIC address, accepts streams, and dispatches requests
+// and events to the registered handlers.
 type QRPCServerImpl struct {
 	listener      *quic.Listener
 	conns         map[uint32]*quic.Conn
@@ -33,6 +38,8 @@ type QRPCServerImpl struct {
 	encoder       internal.Encoder
 }
 
+// NewServer creates a new QUIC-based RPC server, starts listening on addr,
+// and returns immediately. The server runs in the background.
 func NewServer(addr string, tls *tls.Config) (QRpcServer, error) {
 
 	config := &quic.Config{
@@ -73,10 +80,12 @@ func newServer(listener *quic.Listener) QRpcServer {
 	}
 }
 
+// AddHandler registers an RPC handler for the given method name.
 func (s *QRPCServerImpl) AddHandler(method string, handler func(Ctx)) {
 	s.handlers[method] = handler
 }
 
+// AddEventHandler registers a one-way event handler for the given method name.
 func (s *QRPCServerImpl) AddEventHandler(method string, handler func(EventCtx)) {
 	s.eventHandlers[method] = handler
 }
@@ -267,6 +276,7 @@ func (s *QRPCServerImpl) maybeDecompress(data []byte, flag byte) ([]byte, error)
 	}
 }
 
+// IsTimeoutErr checks whether the given error is a QUIC idle timeout error.
 func IsTimeoutErr(err error) bool {
 	var idleTimeoutErr *quic.IdleTimeoutError
 

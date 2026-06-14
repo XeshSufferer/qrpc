@@ -15,11 +15,15 @@ import (
 	"github.com/XeshSufferer/qrpc/transport/types"
 )
 
+// Multiplexer manages a pool of pre-opened QUIC streams over a single connection
+// and dispatches incoming frames via the sharded map.
 type Multiplexer interface {
 	GetStream() (*quic.Stream, error)
 	Close()
 }
 
+// MultiplexerImpl is the concrete implementation of Multiplexer.
+// It opens streamsCount pre-created QUIC streams and runs read-cycle goroutines.
 type MultiplexerImpl struct {
 	balancer qrpc_quic.Balancer
 	conn     *quic.Conn
@@ -41,6 +45,8 @@ var responses = &sync.Pool{
 	},
 }
 
+// NewMultiplexer creates a new Multiplexer, opens streamsCount QUIC streams,
+// and starts read-cycle goroutines for each stream.
 func NewMultiplexer(
 	conn *quic.Conn,
 	quicbalancer qrpc_quic.Balancer,
@@ -259,14 +265,17 @@ func maybeDecompress(data []byte, flag byte) ([]byte, error) {
 	}
 }
 
+// GetRequest obtains a pooled protobuf Request.
 func GetRequest() *gen.Request {
 	return requests.Get().(*gen.Request)
 }
 
+// GetResponse obtains a pooled protobuf Response.
 func GetResponse() *gen.Response {
 	return responses.Get().(*gen.Response)
 }
 
+// ReleaseRequest returns a protobuf Request to the pool.
 func ReleaseRequest(req *gen.Request) {
 	headers := req.Headers[:0]
 	method := req.Method[:0]
@@ -278,6 +287,7 @@ func ReleaseRequest(req *gen.Request) {
 	requests.Put(req)
 }
 
+// ReleaseResponse returns a protobuf Response to the pool.
 func ReleaseResponse(resp *gen.Response) {
 	headers := resp.Headers[:0]
 	method := resp.Method[:0]
@@ -289,6 +299,7 @@ func ReleaseResponse(resp *gen.Response) {
 	responses.Put(resp)
 }
 
+// IsTimeoutErr checks whether the given error is a QUIC idle timeout error.
 func IsTimeoutErr(err error) bool {
 	var idleTimeoutErr *quic.IdleTimeoutError
 
