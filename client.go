@@ -221,7 +221,6 @@ func (c *ClientImpl) SendRequest(
 	id := r.RequestId
 
 	ch, err := c.sendRequestInternal(r)
-	ReleaseRequest(impl)
 	if err != nil {
 		return nil, err
 	}

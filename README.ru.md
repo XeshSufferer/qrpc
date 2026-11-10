@@ -77,6 +77,7 @@ func main() {
   }
   log.Printf("Response: %s", resp.Body())
   client.ReleaseResponse(resp)
+  client.ReleaseRequest(req)
 }
 ```
 
@@ -93,6 +94,7 @@ req := client.NewRequest()
 req.SetMethod([]byte("notify"))
 req.SetBody([]byte("hello"))
 err := client.SendEvent(context.Background(), req)
+client.ReleaseRequest(req)
 ```
 
 ---

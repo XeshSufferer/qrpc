@@ -40,7 +40,7 @@ type QRPCServerImpl struct {
 
 // NewServer creates a new QUIC-based RPC server, starts listening on addr,
 // and returns immediately. The server runs in the background.
-func NewServer(addr string, tls *tls.Config) (QRpcServer, error) {
+func NewServer(addr string, tls *tls.Config, maxStreamsPerConnection int64) (QRpcServer, error) {
 
 	config := &quic.Config{
 		KeepAlivePeriod: 15 * time.Second,
@@ -52,7 +52,7 @@ func NewServer(addr string, tls *tls.Config) (QRpcServer, error) {
 		InitialConnectionReceiveWindow: 16 << 20, // 16 MB
 		MaxConnectionReceiveWindow:     64 << 20, // 64 MB
 
-		MaxIncomingStreams:      10000,
+		MaxIncomingStreams:      maxStreamsPerConnection,
 		HandshakeIdleTimeout:    30 * time.Second,
 		DisablePathMTUDiscovery: true,
 		InitialPacketSize:       1452,
